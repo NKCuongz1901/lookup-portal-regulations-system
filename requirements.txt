@@ -1,0 +1,9 @@
+fastapi[standard]
+sqlalchemy>=2.0,<3
+psycopg[binary]
+alembic
+pydantic-settings
+pyjwt[crypto]
+pwdlib[argon2]
+pytest
+httpx
