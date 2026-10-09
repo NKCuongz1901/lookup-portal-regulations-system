@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -8,6 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import app.models  # noqa: F401
 from app.core.database import get_db
 from app.modules.auth.router import router as auth_router
+from app.modules.users.router import router as users_router
 
 app = FastAPI(
     title="University Regulations API",
@@ -17,6 +19,7 @@ app = FastAPI(
 
 api_v1 = APIRouter(prefix="/api/v1")
 api_v1.include_router(auth_router)
+api_v1.include_router(users_router)
 app.include_router(api_v1)
 
 
@@ -32,6 +35,7 @@ async def http_exception_handler(
             "message": message,
             "status_code": exc.status_code,
             "data": None,
+            "meta": None,
         },
         headers=getattr(exc, "headers", None),
     )
@@ -47,7 +51,8 @@ async def validation_exception_handler(
         content={
             "message": "Validation error",
             "status_code": 422,
-            "data": exc.errors(),
+            "data": jsonable_encoder(exc.errors()),
+            "meta": None,
         },
     )
 
