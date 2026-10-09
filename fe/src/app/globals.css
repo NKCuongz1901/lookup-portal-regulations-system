@@ -1,0 +1,17 @@
+@font-face { font-family: "Geist"; src: url("/fonts/GeistVF.woff") format("woff"); font-weight: 100 900; font-display: swap; }
+:root { --font-geist: "Geist"; color-scheme: light; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { font-family: "Geist", Arial, sans-serif; color: #182230; background: #f7f9fc; -webkit-font-smoothing: antialiased; }
+button, input { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+button:focus-visible, a:focus-visible { outline: 3px solid #8ab6ff; outline-offset: 3px; }
+::selection { background: #d9e9ff; }
+.loading-screen { min-height: 65vh; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; background: #fff; color: #8993a2; font-size: 13px; }
+.status-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; border-radius: 5px; padding: 3px 8px; margin: 0; }
+.status-tag > span { width: 5px; height: 5px; border-radius: 50%; }
+.ant-table-wrapper .ant-table-cell { font-size: 12px; }
+.ant-table-wrapper .ant-table-thead > tr > th { font-size: 11px; font-weight: 500; }
+.ant-input::placeholder { color: #a9b1be; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }

@@ -1,0 +1,3 @@
+.brand { display: inline-flex; align-items: center; gap: 11px; color: #2467db; text-decoration: none; width: fit-content; > span { color: #172437; font-size: 29px; font-weight: 720; letter-spacing: -1.2px; } }
+.dot { color: #2467db; }
+.light { color: white; > span, .dot { color: white; } }

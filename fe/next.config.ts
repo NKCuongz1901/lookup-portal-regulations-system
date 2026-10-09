@@ -1,17 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
-  turbopack: {
-    rules: {
-      "*.css": {
-        loaders: ["@tailwindcss/turbopack"],
-        as: "*.css",
-      },
-    },
-  },
+  // Allow a separate build directory for isolated UI smoke tests.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  // Authenticated pages use request-time rendering and Ant Design's SSR registry.
 };
 
 export default nextConfig;
