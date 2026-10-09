@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 from app.core.database import Base, DATABASE_URL
-import app.models  # noqa: F401 — register User, Role, UserRole on Base.metadata
+import app.models  # noqa: F401 — register all models on Base.metadata
 
 config = context.config
 
