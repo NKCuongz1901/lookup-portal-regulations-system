@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from app.core.schemas import PaginationQuery, PartialUpdate, RequestSchema
 from app.modules.document_metadata.schemas import DocumentTypeResponse, IssuingUnitResponse, TagResponse
-from app.modules.documents.enums import DocumentPublicationStatus
+from app.modules.documents.enums import DocumentParseStatus, DocumentPublicationStatus
 
 
 DocumentCode = Annotated[str, StringConstraints(min_length=1, max_length=100)]
@@ -96,3 +96,31 @@ class DocumentDetail(DocumentListItem):
     published_at: datetime | None
     created_by: int
     updated_by: int | None
+
+
+class StoredFileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    storage_provider: str
+    storage_key: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
+    checksum_sha256: str | None
+    uploaded_by: int | None
+    created_at: datetime
+
+
+class DocumentVersionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    document_id: int
+    version_number: int
+    file_id: int
+    is_current: bool
+    parse_status: DocumentParseStatus
+    parser_version: str | None
+    parsed_at: datetime | None
+    created_by: int
+    created_at: datetime
+    file: StoredFileResponse

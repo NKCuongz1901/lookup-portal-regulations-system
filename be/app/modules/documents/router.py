@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, File, Path, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -13,6 +13,7 @@ from app.modules.documents.schemas import (
     DocumentFilter,
     DocumentListItem,
     DocumentUpdate,
+    DocumentVersionResponse,
 )
 from app.modules.users.models import User
 
@@ -55,3 +56,24 @@ def update_document(document_id: DocumentId, payload: DocumentUpdate, db: DB, ac
 def archive_document(document_id: DocumentId, db: DB, actor: Editor):
     document = services.archive_document(db, document_id, actor.id)
     return success(data=DocumentDetail.model_validate(document), message="Document archived")
+
+
+@router.post(
+    "/{document_id}/versions",
+    response_model=ApiResponse[DocumentVersionResponse],
+    status_code=201,
+)
+async def upload_document_version(
+    document_id: DocumentId,
+    db: DB,
+    actor: Editor,
+    file: Annotated[UploadFile, File(description="PDF or DOCX file, max 20MB")],
+):
+    version = await services.upload_version(db, document_id, file, actor.id)
+    return success(
+        data=DocumentVersionResponse.model_validate(version),
+        message="Document version uploaded",
+        status_code=201,
+    )
+
+
