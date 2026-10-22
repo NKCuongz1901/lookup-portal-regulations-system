@@ -3,18 +3,22 @@ import io
 import zipfile
 from pathlib import Path
 
+from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.core.persistence import commit_or_rollback
-from app.core.storage import build_storage_key, delete_object, upload_bytes
+from app.core.storage import build_storage_key, delete_object, generate_download_url, upload_bytes
 from app.modules.document_metadata.models import DocumentType, IssuingUnit, Tag
 from app.modules.documents import repository
 from app.modules.documents.enums import DocumentParseStatus, DocumentPublicationStatus
 from app.modules.documents.models import Document, DocumentVersion
-from app.modules.documents.schemas import DocumentCreate, DocumentFilter, DocumentUpdate
+from app.modules.documents.schemas import (
+    DocumentCreate, DocumentDownloadResponse, DocumentFilter, DocumentUpdate, DocumentVersionQuery,
+)
 from app.modules.files.models import StoredFile
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
@@ -34,6 +38,48 @@ def get_document(db: Session, document_id: int, *, for_update=False) -> Document
 
 def list_documents(db: Session, filters: DocumentFilter):
     return repository.list_documents(db, filters)
+
+
+def list_versions(db: Session, document_id: int, filters: DocumentVersionQuery):
+    get_document(db, document_id)
+    return repository.list_versions(db, document_id, filters)
+
+
+def get_download_url(
+    db: Session, document_id: int, version_id: int | None = None,
+) -> DocumentDownloadResponse:
+    get_document(db, document_id)
+    version = repository.get_download_version(db, document_id, version_id)
+    if version is None:
+        message = "Current document version not found" if version_id is None else "Document version not found"
+        raise HTTPException(404, message)
+    stored_file = version.file
+    if stored_file.storage_provider != "r2":
+        raise HTTPException(409, "File is not stored in R2")
+    expires_in = settings.R2_DOWNLOAD_URL_EXPIRE_SECONDS
+    try:
+        url = generate_download_url(
+            storage_key=stored_file.storage_key,
+            original_name=stored_file.original_name,
+            mime_type=stored_file.mime_type,
+            expires_in=expires_in,
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code")
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            raise HTTPException(404, "File not found in storage") from exc
+        raise HTTPException(502, "Failed to access file storage") from exc
+    except BotoCoreError as exc:
+        raise HTTPException(502, "Failed to access file storage") from exc
+    return DocumentDownloadResponse(
+        document_id=document_id,
+        version_id=version.id,
+        file_name=stored_file.original_name,
+        mime_type=stored_file.mime_type,
+        size_bytes=stored_file.size_bytes,
+        url=url,
+        expires_in=expires_in,
+    )
 
 
 def validate_references(db: Session, values: dict, document: Document | None = None):

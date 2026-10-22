@@ -1,5 +1,7 @@
 """Cloudflare R2 storage client (S3-compatible) via boto3."""
 from functools import lru_cache
+import unicodedata
+from urllib.parse import quote
 from uuid import uuid4
 
 import boto3
@@ -43,4 +45,40 @@ def delete_object(storage_key: str) -> None:
     client.delete_object(
         Bucket=settings.R2_BUCKET_NAME,
         Key=storage_key,
+    )
+
+
+def download_content_disposition(original_name: str) -> str:
+    """Use an ASCII fallback and RFC 5987 UTF-8 filename, without header controls."""
+    name = original_name.replace("\\", "/").rsplit("/", 1)[-1]
+    name = "".join(char for char in name if unicodedata.category(char) not in {"Cc", "Cf"})
+    name = name.strip()
+    if name in {"", ".", ".."}:
+        name = "download"
+    fallback = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    fallback = fallback.replace('"', "_").strip() or "download"
+    return f'attachment; filename="{fallback}"; filename*=UTF-8\'\'{quote(name, safe="")}'
+
+
+def generate_download_url(
+    *, storage_key: str, original_name: str, mime_type: str, expires_in: int,
+) -> str:
+    """Check the object, then sign a GET that downloads under its original name.
+
+    Signing alone does not contact R2. Let the caller distinguish missing objects
+    from permission, credential, and connection errors raised by the SDK.
+    """
+    client = get_r2_client()
+    client.head_object(Bucket=settings.R2_BUCKET_NAME, Key=storage_key)
+    return client.generate_presigned_url(
+        "get_object",
+        Params={
+            "Bucket": settings.R2_BUCKET_NAME,
+            "Key": storage_key,
+            "ResponseContentDisposition": download_content_disposition(original_name),
+            "ResponseContentType": mime_type,
+            "ResponseCacheControl": "private, no-store",
+        },
+        ExpiresIn=expires_in,
+        HttpMethod="GET",
     )

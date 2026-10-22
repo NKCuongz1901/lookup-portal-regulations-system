@@ -71,6 +71,25 @@ class DocumentFilter(PaginationQuery):
     publication_status: DocumentPublicationStatus | None = None
 
 
+class DocumentVersionQuery(RequestSchema):
+    page: int = Field(default=1, ge=1)
+    itemsPerPage: int = Field(default=10, ge=1, le=100)
+
+
+class DocumentDownloadQuery(RequestSchema):
+    version_id: RecordId | None = None
+
+
+class DocumentDownloadResponse(BaseModel):
+    document_id: int
+    version_id: int
+    file_name: str
+    mime_type: str
+    size_bytes: int
+    url: str
+    expires_in: int
+
+
 class DocumentListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

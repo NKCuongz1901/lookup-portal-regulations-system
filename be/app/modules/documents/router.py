@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Path, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Path, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,9 +10,12 @@ from app.modules.documents import services
 from app.modules.documents.schemas import (
     DocumentCreate,
     DocumentDetail,
+    DocumentDownloadQuery,
+    DocumentDownloadResponse,
     DocumentFilter,
     DocumentListItem,
     DocumentUpdate,
+    DocumentVersionQuery,
     DocumentVersionResponse,
 )
 from app.modules.users.models import User
@@ -58,6 +61,36 @@ def archive_document(document_id: DocumentId, db: DB, actor: Editor):
     return success(data=DocumentDetail.model_validate(document), message="Document archived")
 
 
+@router.get("/{document_id}/versions", response_model=ApiResponse[list[DocumentVersionResponse]])
+def list_document_versions(
+    document_id: DocumentId, filters: Annotated[DocumentVersionQuery, Query()], db: DB, actor: Editor,
+):
+    versions, total = services.list_versions(db, document_id, filters)
+    return success(
+        data=[DocumentVersionResponse.model_validate(version) for version in versions],
+        meta=paginate(filters.page, filters.itemsPerPage, total),
+    )
+
+
+@router.get(
+    "/{document_id}/download-url",
+    response_model=ApiResponse[DocumentDownloadResponse],
+    summary="Get a temporary R2 download URL",
+    description="ADMIN/STAFF only. Omit version_id to download the current version. Returns JSON, not file bytes.",
+)
+def get_document_download_url(
+    document_id: DocumentId,
+    filters: Annotated[DocumentDownloadQuery, Query()],
+    response: Response,
+    db: DB,
+    actor: Editor,
+):
+    # A sync endpoint runs blocking SQLAlchemy/boto3 work in FastAPI's thread pool.
+    data = services.get_download_url(db, document_id, filters.version_id)
+    response.headers["Cache-Control"] = "no-store"
+    return success(data=data)
+
+
 @router.post(
     "/{document_id}/versions",
     response_model=ApiResponse[DocumentVersionResponse],
@@ -75,5 +108,4 @@ async def upload_document_version(
         message="Document version uploaded",
         status_code=201,
     )
-
 

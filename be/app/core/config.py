@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     R2_SECRET_ACCESS_KEY: str
     R2_BUCKET_NAME: str
     R2_ENDPOINT: str
+    R2_DOWNLOAD_URL_EXPIRE_SECONDS: int = Field(default=600, ge=1, le=604800)
     
     model_config = SettingsConfigDict(
         env_file=".env",

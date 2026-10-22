@@ -2,8 +2,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.documents.enums import DocumentPublicationStatus
-from app.modules.documents.models import Document, DocumentTag
-from app.modules.documents.schemas import DocumentFilter
+from app.modules.documents.models import Document, DocumentTag, DocumentVersion
+from app.modules.documents.schemas import DocumentFilter, DocumentVersionQuery
 
 
 def document_query():
@@ -67,3 +67,31 @@ def replace_tags(db: Session, document: Document, tag_ids: list[int]) -> None:
     db.flush()
     # The convenience relationship is view-only; reload it after association writes.
     db.expire(document, ["tags"])
+
+
+def list_versions(
+    db: Session, document_id: int, filters: DocumentVersionQuery,
+) -> tuple[list[DocumentVersion], int]:
+    condition = DocumentVersion.document_id == document_id
+    total = db.scalar(select(func.count()).select_from(DocumentVersion).where(condition)) or 0
+    query = (
+        select(DocumentVersion).options(selectinload(DocumentVersion.file))
+        .where(condition)
+        .order_by(DocumentVersion.version_number.desc(), DocumentVersion.id.desc())
+        .offset((filters.page - 1) * filters.itemsPerPage).limit(filters.itemsPerPage)
+    )
+    return list(db.scalars(query).all()), total
+
+
+def get_download_version(
+    db: Session, document_id: int, version_id: int | None,
+) -> DocumentVersion | None:
+    query = (
+        select(DocumentVersion).options(selectinload(DocumentVersion.file))
+        .where(DocumentVersion.document_id == document_id)
+    )
+    if version_id is None:
+        query = query.where(DocumentVersion.is_current.is_(True))
+    else:
+        query = query.where(DocumentVersion.id == version_id)
+    return db.scalar(query.execution_options(populate_existing=True))
