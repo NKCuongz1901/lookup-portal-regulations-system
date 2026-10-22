@@ -9,4 +9,5 @@ export const API_ROUTES = {
   documents: "/backend/documents",
   documentTypes: "/backend/document-types",
   issuingUnits: "/backend/issuing-units",
+  tags: "/backend/tags",
 } as const;

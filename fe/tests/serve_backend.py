@@ -6,6 +6,7 @@ Only listens on loopback; never changes the application's existing tables.
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
+import secrets
 import sys
 from threading import Lock
 from uuid import uuid4
@@ -13,6 +14,8 @@ from uuid import uuid4
 BACKEND = Path(__file__).resolve().parents[2] / "be"
 sys.path.insert(0, str(BACKEND))
 os.chdir(BACKEND)
+# Test sessions must never authenticate against the application's real database.
+os.environ["JWT_SECRET_KEY"] = secrets.token_urlsafe(48)
 
 import uvicorn
 from alembic.config import Config
@@ -24,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.core.database import engine, get_db
 from app.core.security import hash_password
 from app.main import app
-from app.models import Document, DocumentType, IssuingUnit, Role, User, UserRole
+from app.models import Document, DocumentType, IssuingUnit, Role, Tag, User, UserRole
 from app.modules.documents.enums import DocumentPublicationStatus
 
 
@@ -53,7 +56,10 @@ def main():
                     users.append(user)
                 kind = DocumentType(code="QC", name="Quy chế")
                 unit = IssuingUnit(code="DT", name="Phòng Đào tạo")
-                db.add_all([kind, unit])
+                db.add_all([
+                    kind, unit, Tag(name="Đào tạo", slug="dao-tao"),
+                    DocumentType(code="OLD", name="Loại đã ngừng sử dụng", is_active=False),
+                ])
                 db.flush()
                 titles = [
                     "Quy chế đào tạo trình độ đại học", "Quy định xét học bổng khuyến khích học tập",

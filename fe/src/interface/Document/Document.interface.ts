@@ -40,3 +40,17 @@ export interface DocumentFilters extends ListParams {
   tag_id?: number;
   academic_year?: string;
 }
+
+export interface DocumentCreatePayload {
+  code: string;
+  title: string;
+  description?: string | null;
+  document_type_id?: number | null;
+  issuing_unit_id?: number | null;
+  issue_date?: string | null;
+  effective_from?: string | null;
+  effective_until?: string | null;
+  academic_year?: string | null;
+  applicable_subject_codes: string[];
+  tag_ids: number[];
+}

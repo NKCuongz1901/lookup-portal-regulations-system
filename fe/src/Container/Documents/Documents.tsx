@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useState } from "react";
-import { Alert, Button, Empty, Input, Select, Table } from "antd";
-import { EyeOutlined, FileTextOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Empty, Input, Select, Table } from "antd";
+import { EyeOutlined, FileTextOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getDocuments } from "@/apis/documentApis";
 import useResource from "@/hooks/useResource";
@@ -9,9 +9,11 @@ import type { DocumentItem, PublicationStatus } from "@/interface/Document/Docum
 import StatusTag, { publicationLabels } from "@/Components/StatusTag/StatusTag";
 import { formatDate } from "@/ultis/format";
 import DocumentDetail from "./DocumentDetail";
+import CreateDocument from "./CreateDocument";
 import styles from "@/Components/DataPanel/DataPanel.module.scss";
 
 export default function Documents() {
+  const { message } = App.useApp();
   const params = useSearchParams();
   const router = useRouter();
   const statusParam = params.get("status");
@@ -21,6 +23,8 @@ export default function Documents() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const loader = useCallback((signal: AbortSignal) => getDocuments({ page, itemsPerPage: pageSize, search: search || undefined, publication_status: status }, signal), [page, pageSize, search, status]);
   const { data, loading, error, reload } = useResource(loader);
   function updateQuery(name: string, value?: string) {
@@ -30,9 +34,9 @@ export default function Documents() {
   }
   return <>
     <section className={styles.panel}>
-      <div className={styles.heading}><div className={styles.headingText}><span className={styles.headingIcon}><FileTextOutlined /></span><div><h2>Danh sách văn bản <span>{data?.meta?.total ?? "—"}</span></h2><p>Tra cứu và theo dõi thông tin văn bản</p></div></div><Button icon={<ReloadOutlined />} onClick={reload} loading={loading}>Làm mới</Button></div>
+      <div className={styles.heading}><div className={styles.headingText}><span className={styles.headingIcon}><FileTextOutlined /></span><div><h2>Danh sách văn bản <span>{data?.meta?.total ?? "—"}</span></h2><p>Tra cứu và theo dõi thông tin văn bản</p></div></div><div className={styles.headingActions}><Button icon={<ReloadOutlined />} onClick={reload} loading={loading}>Làm mới</Button><Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>Tạo văn bản</Button></div></div>
       <div className={styles.toolbar}>
-        <Input.Search aria-label="Tìm văn bản" placeholder="Tìm theo mã hoặc tên văn bản…" allowClear prefix={<SearchOutlined />} onSearch={(value) => { setSearch(value.trim()); setPage(1); }} className={styles.search} />
+        <Input.Search aria-label="Tìm văn bản" placeholder="Tìm theo mã hoặc tên văn bản…" allowClear prefix={<SearchOutlined />} value={searchInput} onChange={(event) => setSearchInput(event.target.value)} onSearch={(value) => { setSearch(value.trim()); setPage(1); }} className={styles.search} />
         <Select aria-label="Lọc trạng thái văn bản" value={status || "active"} className={styles.statusFilter} onChange={(value) => { setPage(1); updateQuery("status", value === "active" ? undefined : value); }} options={[{ value: "active", label: "Chưa lưu trữ" }, ...Object.entries(publicationLabels).map(([value, label]) => ({ value, label }))]} />
       </div>
       {error && <Alert type="error" showIcon title={error} className={styles.error} action={<Button onClick={reload}>Thử lại</Button>} />}
@@ -48,5 +52,12 @@ export default function Documents() {
         ]} />
     </section>
     {selectedId && <DocumentDetail id={selectedId} onClose={() => updateQuery("id")} />}
+    {createOpen && <CreateDocument onClose={() => setCreateOpen(false)} onCreated={(document) => {
+      setCreateOpen(false);
+      setPage(1); setSearch(""); setSearchInput("");
+      router.replace("/documents", { scroll: false });
+      reload();
+      void message.success(`Đã tạo văn bản ${document.code}.`);
+    }} />}
   </>;
 }
