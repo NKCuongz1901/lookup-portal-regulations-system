@@ -8,13 +8,16 @@ export const SESSION_COOKIE = "regula_session";
 const backend = (process.env.BACKEND_API_URL || "http://127.0.0.1:8000/api/v1").replace(/\/$/, "");
 
 export function backendFetch(path: string, init: RequestInit = {}, token?: string) {
+  const headers = new Headers(init.headers);
+  if (init.body instanceof FormData) {
+    // fetch generates a boundary matching the multipart body it serializes.
+    headers.delete("Content-Type");
+  } else if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(`${backend}${path}`, {
-    ...init, cache: "no-store", signal: AbortSignal.timeout(15000),
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
+    ...init, cache: "no-store", signal: init.signal ?? AbortSignal.timeout(15000), headers,
   });
 }
 

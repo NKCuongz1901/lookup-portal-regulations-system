@@ -1,0 +1,17 @@
+.toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; color: #818a98; font-size: 13px; }
+.actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.uploadNote { color: #818a98; font-size: 14px; line-height: 1.6; margin: 12px 0 20px; }
+.uploadProgress { margin-top: 18px; font-size: 13px; color: #818a98; }
+.list { display: grid; gap: 14px; padding: 0; margin: 0; list-style: none; }
+.version { border: 1px solid #e5e9f0; border-radius: 10px; padding: 18px; }
+.header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; h3 { margin: 0; font-size: 14px; font-weight: 600; } :global(.ant-tag) { margin: 0; } }
+.file { display: flex; align-items: flex-start; gap: 12px; }
+.icon { width: 36px; height: 42px; flex-shrink: 0; border-radius: 7px; display: grid; place-items: center; background: #eef4ff; color: #2467db; font-size: 20px; }
+.fileInfo { min-width: 0; flex: 1; }
+.fileName { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.meta { color: #818a98; font-size: 12px; line-height: 1.7; margin-top: 4px; }
+.error { margin-bottom: 16px; }
+.pagination { display: flex; justify-content: flex-end; margin-top: 20px; }
+.emptyNote { color: #818a98; font-size: 13px; }
+@media (max-width: 480px) { .version { padding: 14px; } .toolbar { flex-wrap: wrap; } .header > :global(.ant-btn) { height: 36px; } }

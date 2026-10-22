@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:auth": "node --test tests/auth.test.mjs"
+    "test:auth": "node --test tests/auth.test.mjs",
+    "test:document-download": "node --test tests/document-download.test.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",

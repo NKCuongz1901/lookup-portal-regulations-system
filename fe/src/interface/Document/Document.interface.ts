@@ -54,3 +54,41 @@ export interface DocumentCreatePayload {
   applicable_subject_codes: string[];
   tag_ids: number[];
 }
+
+export interface StoredFile {
+  id: number;
+  storage_provider: string;
+  storage_key: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  checksum_sha256: string | null;
+  uploaded_by: number | null;
+  created_at: string;
+}
+
+export interface DocumentVersion {
+  id: number;
+  document_id: number;
+  version_number: number;
+  file_id: number;
+  is_current: boolean;
+  parse_status: "pending" | "processing" | "parsed" | "failed";
+  parser_version: string | null;
+  parsed_at: string | null;
+  created_by: number;
+  created_at: string;
+  file: StoredFile;
+}
+
+export interface DocumentDownload {
+  document_id: number;
+  version_id: number;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  url: string;
+  expires_in: number;
+}
+
+export type DocumentVersionParams = Pick<ListParams, "page" | "itemsPerPage">;

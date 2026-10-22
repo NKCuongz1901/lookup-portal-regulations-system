@@ -51,7 +51,7 @@ export default function Documents() {
           { title: "", key: "action", width: 50, render: (_, doc) => <Button type="text" icon={<EyeOutlined />} aria-label={`Xem ${doc.code}`} onClick={() => updateQuery("id", String(doc.id))} /> },
         ]} />
     </section>
-    {selectedId && <DocumentDetail id={selectedId} onClose={() => updateQuery("id")} />}
+    {selectedId && <DocumentDetail key={selectedId} id={selectedId} onClose={() => updateQuery("id")} />}
     {createOpen && <CreateDocument onClose={() => setCreateOpen(false)} onCreated={(document) => {
       setCreateOpen(false);
       setPage(1); setSearch(""); setSearchInput("");

@@ -1,10 +1,12 @@
 import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 import { apiError, backendFetch, clearSession, jsonResponse, sameOrigin, SESSION_COOKIE } from "@/ultis/serverSession";
+import { DOCUMENT_UPLOAD_TIMEOUT_MS } from "@/ultis/documentUpload";
+import { readDocumentUpload, UploadValidationError } from "@/ultis/serverUpload";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
-  if (!/^(users|documents(?:\/\d+)?|document-types|issuing-units|tags)$/.test(path)) {
+  if (!/^(users|documents(?:\/\d+(?:\/(?:versions|download-url))?)?|document-types|issuing-units|tags)$/.test(path)) {
     return apiError(404, "Not found");
   }
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -20,10 +22,27 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
 
 export async function POST(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
-  if (path !== "documents") return apiError(404, "Not found");
+  const isUpload = /^documents\/\d+\/versions$/.test(path);
+  if (path !== "documents" && !isUpload) return apiError(404, "Not found");
   if (!sameOrigin(request)) return apiError(403, "Invalid origin");
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return apiError(401, "Authentication required");
+  if (isUpload) {
+    try {
+      const body = await readDocumentUpload(request);
+      const upstream = await backendFetch(`/${path}`, {
+        method: "POST", body, signal: AbortSignal.timeout(DOCUMENT_UPLOAD_TIMEOUT_MS),
+      }, token);
+      const response = jsonResponse(await upstream.json(), upstream.status);
+      return upstream.status === 401 ? clearSession(response) : response;
+    } catch (error) {
+      if (error instanceof UploadValidationError) return apiError(error.status, error.message);
+      if (error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name)) {
+        return apiError(504, "Upload result unknown. Refresh versions before retrying.");
+      }
+      return apiError(503, "Upload result unknown. Refresh versions before retrying.");
+    }
+  }
   if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
     return apiError(415, "JSON content required");
   }
