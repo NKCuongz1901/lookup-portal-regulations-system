@@ -20,6 +20,45 @@ export async function GET(request: NextRequest, context: { params: Promise<{ pat
   }
 }
 
+export async function DELETE(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const path = (await context.params).path.join("/");
+  if (!/^documents\/[1-9]\d*$/.test(path)) return apiError(404, "Not found");
+  if (!sameOrigin(request)) return apiError(403, "Invalid origin");
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!token) return apiError(401, "Authentication required");
+  try {
+    const upstream = await backendFetch(`/${path}`, { method: "DELETE" }, token);
+    const response = jsonResponse(await upstream.json(), upstream.status);
+    return upstream.status === 401 ? clearSession(response) : response;
+  } catch {
+    return apiError(503, "Backend unavailable");
+  }
+}
+
+export async function PATCH(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const path = (await context.params).path.join("/");
+  if (!/^documents\/[1-9]\d*(?:\/archive)?$/.test(path)) return apiError(404, "Not found");
+  if (!sameOrigin(request)) return apiError(403, "Invalid origin");
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!token) return apiError(401, "Authentication required");
+  let body: string | undefined;
+  if (!path.endsWith("/archive")) {
+    if (request.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
+      return apiError(415, "JSON content required");
+    }
+    const payload: unknown = await request.json().catch(() => null);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return apiError(422, "Invalid request body");
+    body = JSON.stringify(payload);
+  }
+  try {
+    const upstream = await backendFetch(`/${path}`, { method: "PATCH", body }, token);
+    const response = jsonResponse(await upstream.json(), upstream.status);
+    return upstream.status === 401 ? clearSession(response) : response;
+  } catch {
+    return apiError(503, "Backend unavailable");
+  }
+}
+
 export async function POST(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
   const isUpload = /^documents\/\d+\/versions$/.test(path);

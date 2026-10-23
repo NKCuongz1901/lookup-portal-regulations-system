@@ -55,6 +55,8 @@ export interface DocumentCreatePayload {
   tag_ids: number[];
 }
 
+export type DocumentUpdatePayload = Partial<DocumentCreatePayload>;
+
 export interface StoredFile {
   id: number;
   storage_provider: string;

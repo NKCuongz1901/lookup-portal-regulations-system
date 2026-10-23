@@ -1,6 +1,6 @@
 import api from "@/axios";
 import { API_ROUTES } from "@/routes";
-import type { DocumentCreatePayload, DocumentDetail, DocumentDownload, DocumentFilters, DocumentItem, DocumentTag, DocumentVersion, DocumentVersionParams, Lookup } from "@/interface/Document/Document.interface";
+import type { DocumentCreatePayload, DocumentDetail, DocumentDownload, DocumentFilters, DocumentItem, DocumentTag, DocumentUpdatePayload, DocumentVersion, DocumentVersionParams, Lookup } from "@/interface/Document/Document.interface";
 import type { ApiResponse } from "@/interface/common/common.interface";
 import { DOCUMENT_UPLOAD_TIMEOUT_MS } from "@/ultis/documentUpload";
 
@@ -41,6 +41,18 @@ export async function getDocumentTypes(signal?: AbortSignal) {
 
 export async function createDocument(payload: DocumentCreatePayload) {
   return (await api.post<ApiResponse<DocumentDetail>>(API_ROUTES.documents, payload)).data;
+}
+
+export async function updateDocument(id: number, payload: DocumentUpdatePayload) {
+  return (await api.patch<ApiResponse<DocumentDetail>>(`${API_ROUTES.documents}/${id}`, payload)).data;
+}
+
+export async function archiveDocument(id: number) {
+  return (await api.patch<ApiResponse<DocumentDetail>>(`${API_ROUTES.documents}/${id}/archive`)).data;
+}
+
+export async function deleteDocument(id: number) {
+  return (await api.delete<ApiResponse<null>>(`${API_ROUTES.documents}/${id}`)).data;
 }
 
 async function getAllOptions<T>(path: string, activeOnly: boolean, signal: AbortSignal) {

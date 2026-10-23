@@ -1,31 +1,17 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import vm from 'node:vm';
-import ts from 'typescript';
+import { loadModule } from './helpers/load-typescript.mjs';
 
 // Exercise the real TypeScript modules with in-memory session/network/DOM
 // boundaries. No local server, application data, or R2 credentials are needed.
-function loadModule(path, imports = {}, globals = {}) {
-  const source = readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
-  const { outputText } = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
-  });
-  const exports = {};
-  vm.runInNewContext(outputText, {
-    exports, URL, ...globals,
-    require(name) {
-      assert.ok(Object.hasOwn(imports, name), `Unexpected dependency: ${name}`);
-      return imports[name];
-    },
-  }, { filename: path });
-  return exports;
-}
+const uploadConfig = loadModule('ultis/documentUpload.ts');
 
 function proxy({ token = 'session-token', status = 200, fail = false } = {}) {
   const calls = [];
   const payload = { data: { url: 'https://test.r2.cloudflarestorage.com/file?signed=1' } };
   const route = loadModule('app/api/backend/[...path]/route.ts', {
+    '@/ultis/documentUpload': uploadConfig,
+    '@/ultis/serverUpload': {},
     'next/headers': { cookies: async () => ({ get: () => token ? { value: token } : undefined }) },
     '@/ultis/serverSession': {
       SESSION_COOKIE: 'regula_session',
@@ -73,7 +59,7 @@ test('Read allowlist does not expose unrelated nested endpoints or new mutations
     const response = await route.GET({}, { params: Promise.resolve({ path: path.split('/') }) });
     assert.equal(response.status, 404);
   }
-  for (const path of ['documents/12/versions', 'documents/12/download-url']) {
+  for (const path of ['documents/12/versions/35', 'documents/12/download-url']) {
     assert.equal((await route.POST({}, { params: Promise.resolve({ path: path.split('/') }) })).status, 404);
   }
   assert.equal(calls.length, 0);
@@ -102,6 +88,7 @@ test('Client API uses the selected version ID, requests fresh URLs, and supports
   const calls = [];
   const api = { get: async (...args) => { calls.push(args); return { data: { data: { url: `https://test.r2.cloudflarestorage.com/file?signed=${calls.length}` } } }; } };
   const client = loadModule('apis/documentApis.ts', {
+    '@/ultis/documentUpload': uploadConfig,
     '@/axios': { __esModule: true, default: api }, '@/routes': { API_ROUTES: { documents: '/backend/documents' } },
   });
   const signal = new AbortController().signal;
@@ -130,11 +117,11 @@ function downloadHarness(clickFails = false) {
     },
     remove() { removed = true; },
   };
-  const module = loadModule('ultis/downloadFile.ts', {}, { document: {
+  const downloadModule = loadModule('ultis/downloadFile.ts', {}, { document: {
     createElement(tag) { assert.equal(tag, 'a'); return anchor; },
     body: { appendChild(link) { assert.equal(link, anchor); attached = true; } },
   } });
-  return { ...module, anchor, state: () => ({ attached, clicked, removed }) };
+  return { ...downloadModule, anchor, state: () => ({ attached, clicked, removed }) };
 }
 
 test('Native file download preserves the signed URL and Vietnamese name without a popup', () => {
