@@ -7,7 +7,7 @@ from app.modules.documents.schemas import DocumentFilter, DocumentVersionQuery
 
 
 def document_query():
-    return select(Document).options(
+    return select(Document).where(Document.deleted_at.is_(None)).options(
         selectinload(Document.document_type),
         selectinload(Document.issuing_unit),
         selectinload(Document.tags),
@@ -29,7 +29,7 @@ def code_exists(db: Session, code: str, excluding_id: int | None = None) -> bool
 
 
 def list_documents(db: Session, filters: DocumentFilter) -> tuple[list[Document], int]:
-    conditions = []
+    conditions = [Document.deleted_at.is_(None)]
     if filters.publication_status is None:
         conditions.append(Document.publication_status != DocumentPublicationStatus.ARCHIVED)
     else:

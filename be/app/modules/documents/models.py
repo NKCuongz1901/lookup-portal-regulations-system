@@ -56,6 +56,7 @@ class Document(Base):
         Index("ix_documents_issue_expiry", "issue_date", "effective_until"),
         Index("ix_documents_created_by", "created_by"),
         Index("ix_documents_updated_by", "updated_by"),
+        Index("ix_documents_deleted_by", "deleted_by"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -95,6 +96,10 @@ class Document(Base):
     )
     updated_by: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", name="fk_documents_deleted_by_users", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

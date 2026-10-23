@@ -55,6 +55,16 @@ def update_document(document_id: DocumentId, payload: DocumentUpdate, db: DB, ac
     return success(data=DocumentDetail.model_validate(document), message="Document updated")
 
 
+@router.delete(
+    "/{document_id}", response_model=ApiResponse[None],
+    summary="Soft-delete a document",
+    description="ADMIN/STAFF only. Hides the document from all document APIs while retaining its file and version history.",
+)
+def delete_document(document_id: DocumentId, db: DB, actor: Editor):
+    services.delete_document(db, document_id, actor.id)
+    return success(message="Document deleted")
+
+
 @router.patch("/{document_id}/archive", response_model=ApiResponse[DocumentDetail])
 def archive_document(document_id: DocumentId, db: DB, actor: Editor):
     document = services.archive_document(db, document_id, actor.id)
@@ -108,4 +118,3 @@ async def upload_document_version(
         message="Document version uploaded",
         status_code=201,
     )
-

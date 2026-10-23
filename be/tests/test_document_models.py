@@ -140,11 +140,19 @@ def test_enums_round_trip_using_lowercase_values(column, enum_class):
 
 def test_migration_ddl_matches_models(migration):
     statements = []
+    def original_revision_sql(sql):
+        # These audit columns belong to the later soft-delete migration below.
+        sql = str(sql.compile(dialect=dialect()))
+        if sql.lstrip().startswith("CREATE INDEX ix_documents_deleted_by"):
+            return
+        if sql.lstrip().startswith("CREATE TABLE documents "):
+            sql = "\n".join(line for line in sql.splitlines() if not any(
+                name in line for name in ("deleted_at", "deleted_by")
+            ))
+        statements.append(normalize_sql(sql))
     mock_engine = create_mock_engine(
         "postgresql+psycopg://",
-        lambda sql, *args, **kwargs: statements.append(
-            normalize_sql(str(sql.compile(dialect=dialect())))
-        ),
+        lambda sql, *args, **kwargs: original_revision_sql(sql),
     )
     Base.metadata.create_all(
         mock_engine,
@@ -158,6 +166,27 @@ def test_migration_ddl_matches_models(migration):
         "CREATE UNIQUE INDEX ux_document_versions_current ON document_versions "
         "(document_id) WHERE is_current = TRUE"
     ) in actual
+
+
+def test_soft_delete_migration_is_additive_and_matches_audit_columns():
+    config = Config()
+    config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+    revision = ScriptDirectory.from_config(config).get_revision("a4d90b2c7e61")
+    assert revision.down_revision == "7c4e9a2d6b10"
+    sql = migration_sql(revision.module.upgrade)
+    assert "ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE" in sql
+    assert "ADD COLUMN deleted_by BIGINT" in sql
+    assert "fk_documents_deleted_by_users FOREIGN KEY(deleted_by) REFERENCES users (id) ON DELETE SET NULL" in sql
+    assert "CREATE INDEX ix_documents_deleted_by ON documents (deleted_by)" in sql
+    assert "DROP " not in sql
+    assert Document.__table__.c.deleted_at.nullable
+    assert Document.__table__.c.deleted_at.type.timezone
+    assert Document.__table__.c.deleted_by.nullable
+    foreign_key = next(iter(Document.__table__.c.deleted_by.foreign_keys))
+    assert foreign_key.name == "fk_documents_deleted_by_users"
+    assert foreign_key.target_fullname == "users.id"
+    assert foreign_key.ondelete == "SET NULL"
+    assert "DROP COLUMN deleted_at" in migration_sql(revision.module.downgrade)
 
 
 def test_downgrade_drops_dependents_before_parents_and_enums(migration):

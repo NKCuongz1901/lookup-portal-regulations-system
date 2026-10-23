@@ -145,6 +145,16 @@ def update_document(
     return get_document(db, document_id)
 
 
+def delete_document(db: Session, document_id: int, actor_id: int) -> None:
+    with commit_or_rollback(db):
+        # Use the same row lock as edits, archive, and version creation.
+        document = get_document(db, document_id, for_update=True)
+        document.deleted_at = func.now()
+        document.deleted_by = actor_id
+        document.updated_by = actor_id
+        document.updated_at = func.now()
+
+
 def archive_document(db: Session, document_id: int, actor_id: int) -> Document:
     with commit_or_rollback(db):
         document = get_document(db, document_id, for_update=True)
