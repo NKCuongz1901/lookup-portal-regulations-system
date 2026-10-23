@@ -12,6 +12,18 @@ import { requestError } from "@/ultis/requestError";
 import { documentFormPayload, documentInitialValues, documentUpdatePayload, includeCurrentOptions, type DocumentFormValues } from "@/ultis/documentForm";
 import styles from "./CreateDocument.module.scss";
 
+function popupContainer(trigger: HTMLElement) {
+  // Keep pickers/selects inside the drawer so Windows focus-trap/scale cannot hide them.
+  return trigger.parentElement ?? document.body;
+}
+
+const datePickerProps = {
+  className: styles.date,
+  format: "DD/MM/YYYY",
+  getPopupContainer: popupContainer,
+  styles: { popup: { root: { zIndex: 2000 } } },
+} as const;
+
 export default function DocumentForm({ document, onClose, onSaved }: {
   document?: DocumentDetail;
   onClose: () => void;
@@ -55,6 +67,7 @@ export default function DocumentForm({ document, onClose, onSaved }: {
 
   return <Drawer title={document ? "Sửa thông tin văn bản" : "Tạo văn bản"} open size={680} onClose={() => { if (!pending.current) onClose(); }}
     closable={!submitting} keyboard={!submitting} mask={{ closable: !submitting }}
+    focusable={{ trap: false }}
     footer={<div className={styles.footer}>
       <Button onClick={onClose} disabled={submitting}>Hủy</Button>
       <Button type="primary" icon={document ? <SaveOutlined /> : <PlusOutlined />} htmlType="submit" form={formId} loading={submitting}>{document ? "Lưu thay đổi" : "Tạo văn bản"}</Button>
@@ -79,32 +92,34 @@ export default function DocumentForm({ document, onClose, onSaved }: {
       <div className={styles.grid}>
         <Form.Item name="document_type_id" label="Loại văn bản"><Select allowClear showSearch optionFilterProp="label"
           loading={loadingOptions} disabled={submitting || !options} placeholder="Chọn loại văn bản"
+          getPopupContainer={popupContainer}
           options={types.map((item) => ({ value: item.id, label: item.is_active ? item.name : `${item.name} (Ngừng sử dụng)`, disabled: !item.is_active }))} notFoundContent="Chưa có loại văn bản" /></Form.Item>
         <Form.Item name="issuing_unit_id" label="Đơn vị ban hành"><Select allowClear showSearch optionFilterProp="label"
           loading={loadingOptions} disabled={submitting || !options} placeholder="Chọn đơn vị ban hành"
+          getPopupContainer={popupContainer}
           options={units.map((item) => ({ value: item.id, label: item.is_active ? item.name : `${item.name} (Ngừng sử dụng)`, disabled: !item.is_active }))} notFoundContent="Chưa có đơn vị ban hành" /></Form.Item>
       </div>
       <Divider />
       <h3 className={styles.sectionTitle}>Thời gian và phạm vi áp dụng</h3>
       <div className={styles.grid}>
-        <Form.Item name="issue_date" label="Ngày ban hành"><DatePicker className={styles.date} format="DD/MM/YYYY" placeholder="Chọn ngày" /></Form.Item>
+        <Form.Item name="issue_date" label="Ngày ban hành"><DatePicker {...datePickerProps} placeholder="Chọn ngày" /></Form.Item>
         <Form.Item name="academic_year" label="Năm học" rules={[{ max: 30 }]}><Input maxLength={30} placeholder="Ví dụ: 2026-2027" /></Form.Item>
-        <Form.Item name="effective_from" label="Có hiệu lực từ"><DatePicker className={styles.date} format="DD/MM/YYYY" placeholder="Chọn ngày" /></Form.Item>
+        <Form.Item name="effective_from" label="Có hiệu lực từ"><DatePicker {...datePickerProps} placeholder="Chọn ngày" /></Form.Item>
         <Form.Item name="effective_until" label="Có hiệu lực đến" dependencies={["effective_from"]} rules={[
           ({ getFieldValue }) => ({ validator(_, value: Dayjs | undefined) {
             const start = getFieldValue("effective_from") as Dayjs | undefined;
             return start && value && value.isBefore(start, "day")
               ? Promise.reject(new Error("Ngày kết thúc phải từ ngày bắt đầu trở đi.")) : Promise.resolve();
           } }),
-        ]}><DatePicker className={styles.date} format="DD/MM/YYYY" placeholder="Không giới hạn" /></Form.Item>
+        ]}><DatePicker {...datePickerProps} placeholder="Không giới hạn" /></Form.Item>
       </div>
       <Form.Item name="applicable_subject_codes" label="Đối tượng áp dụng" extra="Chọn hoặc nhập mã đối tượng, nhấn Enter để thêm.">
-        <Select mode="tags" tokenSeparators={[","]} placeholder="Chọn đối tượng" options={[
+        <Select mode="tags" tokenSeparators={[","]} placeholder="Chọn đối tượng" getPopupContainer={popupContainer} options={[
           { value: "STUDENT", label: "Sinh viên" }, { value: "STAFF", label: "Nhân viên" }, { value: "ADMIN", label: "Quản trị viên" },
         ]} />
       </Form.Item>
       <Form.Item name="tag_ids" label="Thẻ"><Select mode="multiple" allowClear optionFilterProp="label" loading={loadingOptions}
-        disabled={submitting || !options} placeholder="Chọn thẻ để dễ tra cứu"
+        disabled={submitting || !options} placeholder="Chọn thẻ để dễ tra cứu" getPopupContainer={popupContainer}
         options={tags.map((item) => ({ value: item.id, label: item.name }))} notFoundContent="Chưa có thẻ" /></Form.Item>
     </Form>
   </Drawer>;
