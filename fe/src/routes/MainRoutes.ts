@@ -4,4 +4,5 @@ export const mainRoutes = {
   users: "/users",
   documents: "/documents",
   documentTypes: "/document-types",
+  issuingUnits: "/issuing-units",
 } as const;

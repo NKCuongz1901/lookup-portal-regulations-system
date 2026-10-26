@@ -14,7 +14,8 @@
     "test:document-edit": "node --test tests/document-edit.test.mjs",
     "test:document-delete": "node --test tests/document-delete.test.mjs",
     "test:document-types": "node --test tests/document-types.test.mjs",
-    "test:documents": "node --test tests/document-download.test.mjs tests/document-upload.test.mjs tests/document-edit.test.mjs tests/document-delete.test.mjs tests/document-types.test.mjs"
+    "test:issuing-units": "node --test tests/issuing-units.test.mjs",
+    "test:documents": "node --test tests/document-download.test.mjs tests/document-upload.test.mjs tests/document-edit.test.mjs tests/document-delete.test.mjs tests/document-types.test.mjs tests/issuing-units.test.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.4",

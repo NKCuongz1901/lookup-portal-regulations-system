@@ -6,7 +6,7 @@ import { readDocumentUpload, UploadValidationError } from "@/ultis/serverUpload"
 
 export async function GET(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
-  if (!/^(users|documents(?:\/\d+(?:\/(?:versions|download-url))?)?|document-types(?:\/[1-9]\d*)?|issuing-units|tags)$/.test(path)) {
+  if (!/^(users|documents(?:\/\d+(?:\/(?:versions|download-url))?)?|(?:document-types|issuing-units)(?:\/[1-9]\d*)?|tags)$/.test(path)) {
     return apiError(404, "Not found");
   }
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -37,7 +37,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
-  if (!/^(documents\/[1-9]\d*(?:\/archive)?|document-types\/[1-9]\d*)$/.test(path)) return apiError(404, "Not found");
+  if (!/^(documents\/[1-9]\d*(?:\/archive)?|(?:document-types|issuing-units)\/[1-9]\d*)$/.test(path)) return apiError(404, "Not found");
   if (!sameOrigin(request)) return apiError(403, "Invalid origin");
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return apiError(401, "Authentication required");
@@ -62,7 +62,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ p
 export async function POST(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
   const isUpload = /^documents\/\d+\/versions$/.test(path);
-  if (path !== "documents" && path !== "document-types" && !isUpload) return apiError(404, "Not found");
+  if (path !== "documents" && path !== "document-types" && path !== "issuing-units" && !isUpload) return apiError(404, "Not found");
   if (!sameOrigin(request)) return apiError(403, "Invalid origin");
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return apiError(401, "Authentication required");
