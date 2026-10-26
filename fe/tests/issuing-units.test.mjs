@@ -109,7 +109,7 @@ test('Unit allowlist excludes invalid IDs, nested actions, deletion, and unrelat
       assert.equal((await call(method, `issuing-units/${suffix}`)).status, 404);
     }
   }
-  for (const [method, path] of [['POST', 'issuing-units/8'], ['PATCH', 'issuing-units'], ['DELETE', 'issuing-units/8'], ['POST', 'tags'], ['PATCH', 'tags/8']]) {
+  for (const [method, path] of [['POST', 'issuing-units/8'], ['PATCH', 'issuing-units'], ['DELETE', 'issuing-units/8'], ['POST', 'users'], ['PATCH', 'users/8']]) {
     assert.equal((await call(method, path)).status, 404);
   }
   assert.equal(calls.length, 0);

@@ -116,7 +116,7 @@ test('Allowlist rejects invalid IDs, nested actions, unsupported mutations, and 
       assert.equal((await call(method, path)).status, 404);
     }
   }
-  for (const [method, path] of [['POST', 'document-types/7'], ['PATCH', 'document-types'], ['DELETE', 'document-types/7'], ['POST', 'tags'], ['PATCH', 'tags/7']]) {
+  for (const [method, path] of [['POST', 'document-types/7'], ['PATCH', 'document-types'], ['DELETE', 'document-types/7'], ['POST', 'users'], ['PATCH', 'users/7']]) {
     assert.equal((await call(method, path)).status, 404);
   }
   assert.equal(calls.length, 0);

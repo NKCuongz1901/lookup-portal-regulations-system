@@ -5,4 +5,5 @@ export const mainRoutes = {
   documents: "/documents",
   documentTypes: "/document-types",
   issuingUnits: "/issuing-units",
+  tags: "/tags",
 } as const;
