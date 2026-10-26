@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { App, Avatar, Button, Drawer, Dropdown, Menu, Tooltip } from "antd";
-import { CalendarOutlined, DownOutlined, FileTextOutlined, LogoutOutlined, MenuOutlined, SearchOutlined, TeamOutlined } from "@ant-design/icons";
+import { CalendarOutlined, DownOutlined, FileTextOutlined, FolderOutlined, LogoutOutlined, MenuOutlined, SearchOutlined, TeamOutlined } from "@ant-design/icons";
 import { usePathname, useRouter } from "next/navigation";
 import Brand from "@/Components/Brand/Brand";
 import { useAuth } from "@/context/AuthContext";
@@ -20,7 +20,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const role = user.roles.includes("ADMIN") ? "Quản trị viên" : "Nhân viên";
-  const title = pathname === mainRoutes.users ? "Người dùng" : pathname === mainRoutes.documents ? "Văn bản" : "Tổng quan";
+  const title = pathname === mainRoutes.users ? "Người dùng" : pathname === mainRoutes.documents ? "Văn bản"
+    : pathname === mainRoutes.documentTypes ? "Loại văn bản" : "Tổng quan";
   const date = new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
   async function signOut() {
     setLoggingOut(true);
@@ -46,6 +47,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <Menu mode="inline" selectedKeys={[pathname]} items={[
         { key: mainRoutes.users, icon: <TeamOutlined />, label: "Người dùng" },
         { key: mainRoutes.documents, icon: <FileTextOutlined />, label: "Văn bản" },
+        { key: mainRoutes.documentTypes, icon: <FolderOutlined />, label: "Loại văn bản" },
       ]} onClick={({ key }) => { router.push(key); setMobileOpen(false); }} />
     </nav>
     <div className={styles.sidebarBottom}>
@@ -61,7 +63,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <header className={styles.header}>
         <div className={styles.headerTitle}>
           <Button className={styles.mobileToggle} icon={<MenuOutlined />} type="text" onClick={() => setMobileOpen(true)} aria-label="Mở điều hướng" />
-          <div><span className={styles.breadcrumb}>Không gian quản trị <span>/</span> {title}</span><h1>{title}</h1><p>{pathname === mainRoutes.dashboard ? `Chào ${user.full_name.split(" ").at(-1)}, chúc bạn một ngày làm việc hiệu quả.` : pathname === mainRoutes.users ? "Danh sách tài khoản và quyền truy cập hệ thống." : "Tập trung văn bản, quy định và thông tin của đơn vị."}</p></div>
+          <div><span className={styles.breadcrumb}>Không gian quản trị <span>/</span> {title}</span><h1>{title}</h1><p>{pathname === mainRoutes.dashboard ? `Chào ${user.full_name.split(" ").at(-1)}, chúc bạn một ngày làm việc hiệu quả.` : pathname === mainRoutes.users ? "Danh sách tài khoản và quyền truy cập hệ thống." : pathname === mainRoutes.documentTypes ? "Quản lý danh mục phân loại văn bản của đơn vị." : "Tập trung văn bản, quy định và thông tin của đơn vị."}</p></div>
         </div>
         <div className={styles.headerActions}>
           <span className={styles.date}><CalendarOutlined /> {date}</span>

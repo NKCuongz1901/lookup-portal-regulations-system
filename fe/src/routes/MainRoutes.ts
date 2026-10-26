@@ -3,4 +3,5 @@ export const mainRoutes = {
   dashboard: "/dashboard",
   users: "/users",
   documents: "/documents",
+  documentTypes: "/document-types",
 } as const;
