@@ -47,6 +47,13 @@ def delete_object(storage_key: str) -> None:
         Key=storage_key,
     )
 
+def download_bytes(storate_key: str) -> bytes:
+    client = get_r2_client()
+    response = client.get_object(
+        Bucket=settings.R2_BUCKET_NAME,
+        Key=storate_key,
+    )
+    return response["Body"].read()
 
 def download_content_disposition(original_name: str) -> str:
     """Use an ASCII fallback and RFC 5987 UTF-8 filename, without header controls."""
