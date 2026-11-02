@@ -1,4 +1,3 @@
-"""Cloudflare R2 storage client (S3-compatible) via boto3."""
 from functools import lru_cache
 import unicodedata
 from urllib.parse import quote
