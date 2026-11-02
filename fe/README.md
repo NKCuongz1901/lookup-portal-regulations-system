@@ -38,3 +38,6 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 python3.11 -m venv .venv
 source .venv/bin/activate
 uvicorn app.main:app --reload
+
+#start celery
+celery -A app.core.celery_app.celery_app worker -l info

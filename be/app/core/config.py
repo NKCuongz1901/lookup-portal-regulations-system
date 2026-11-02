@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str
     R2_ENDPOINT: str
     R2_DOWNLOAD_URL_EXPIRE_SECONDS: int = Field(default=600, ge=1, le=604800)
+
+    # Celery
+    CELERY_BROKER_URL: str
+    CELERY_RESULT_BACKEND: str
     
     model_config = SettingsConfigDict(
         env_file=".env",
