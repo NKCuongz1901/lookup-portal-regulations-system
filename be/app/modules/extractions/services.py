@@ -18,6 +18,20 @@ MIN_TEXT_CHARS = 40
 def needs_ocr(page: pymupdf.Page, text: str) -> bool:
     """OCR when the text layer is weak but the page looks image-heavy."""
     if len(text.strip()) >= MIN_TEXT_CHARS:
+        # A scanned page may contain only a small digital-signature overlay as
+        # native text. That overlay must not hide the scanned document body.
+        if len(text.strip()) < 600 and page.rect.get_area() > 0:
+            area = page.rect.get_area()
+            large_image = any(
+                (pymupdf.Rect(image["bbox"]) & page.rect).get_area() / area >= 0.8
+                for image in page.get_image_info()
+            )
+            text_area = sum(
+                (pymupdf.Rect(block[:4]) & page.rect).get_area()
+                for block in page.get_text("blocks") if block[6] == 0
+            )
+            if large_image and text_area / area < 0.15:
+                return True
         return False
     if page.get_images():
         return True
