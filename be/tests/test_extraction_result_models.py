@@ -7,7 +7,7 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_mock_engine
+from sqlalchemy import create_mock_engine, MetaData
 from sqlalchemy.dialects.postgresql import dialect
 from sqlalchemy.orm import configure_mappers
 
@@ -23,9 +23,7 @@ TABLES = {"extraction_runs", "extracted_fields", "field_evidences"}
 def revision():
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
-    result = ScriptDirectory.from_config(config).get_current_head()
-    assert result == "b8f31d2c9a60"
-    return ScriptDirectory.from_config(config).get_revision(result).module
+    return ScriptDirectory.from_config(config).get_revision("b8f31d2c9a60").module
 
 
 def sql_for(operation):
@@ -47,7 +45,12 @@ def test_migration_matches_models_and_registered_foreign_keys():
     configure_mappers()
     statements = []
     engine = create_mock_engine("postgresql+psycopg://", lambda sql, *a, **kw: statements.append(normalize(str(sql.compile(dialect=dialect())))))
-    Base.metadata.create_all(engine, tables=[table for table in Base.metadata.sorted_tables if table.name in TABLES], checkfirst=False)
+    historical = MetaData()
+    for table in Base.metadata.sorted_tables:
+        table.to_metadata(historical)
+    for name in ("review_revision", "reviewed_value", "reviewed_at"):
+        historical.tables["extracted_fields"]._columns.remove(historical.tables["extracted_fields"].c[name])
+    historical.create_all(engine, tables=[table for table in historical.sorted_tables if table.name in TABLES], checkfirst=False)
     # Metadata-level enum DDL belongs to the existing document migration.
     earlier_enums = ("CREATE TYPE document_parse_status ", "CREATE TYPE document_publication_status ", "CREATE TYPE document_relation_type ")
     statements = [sql for sql in statements if not sql.startswith(earlier_enums)]

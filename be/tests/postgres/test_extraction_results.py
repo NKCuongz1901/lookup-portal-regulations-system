@@ -258,14 +258,17 @@ def test_new_migration_downgrade_and_upgrade_leave_document_tables(db):
     config = Config()
     config.set_main_option("script_location", str(Path(__file__).resolve().parents[2] / "alembic"))
     migration = ScriptDirectory.from_config(config).get_revision("b8f31d2c9a60").module
+    review_migration = ScriptDirectory.from_config(config).get_revision("c9a42e7d0b13").module
     connection = db.connection()
     with Operations.context(MigrationContext.configure(connection)):
+        review_migration.downgrade()
         migration.downgrade()
     tables = set(inspect(connection).get_table_names())
     assert "document_segments" in tables
     assert not {"extraction_runs", "extracted_fields", "field_evidences"} & tables
     with Operations.context(MigrationContext.configure(connection)):
         migration.upgrade()
+        review_migration.upgrade()
     assert {"extraction_runs", "extracted_fields", "field_evidences"} <= set(inspect(connection).get_table_names())
 
 

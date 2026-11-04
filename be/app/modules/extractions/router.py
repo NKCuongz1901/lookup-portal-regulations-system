@@ -11,6 +11,8 @@ from app.modules.extractions import result_service
 from app.modules.extractions.schemas import ExtractedFieldResponse, FieldQuery, RunCreate, RunQuery, RunResponse
 from app.modules.extractions.segment_service import VersionNotFoundError
 from app.modules.extractions.tasks import enqueue_field_extraction
+from app.modules.extractions import review_service
+from app.modules.extractions.schemas import ReviewCreate, ReviewResponse
 from app.modules.users.models import User
 
 
@@ -85,3 +87,18 @@ def create_extraction_run(version_id: RecordId, payload: RunCreate, response: Re
 def retry_extraction_run(run_id: RecordId, response: Response, db: DB, actor: Editor):
     with api_errors():
         return dispatch(db, result_service.get_run(db, run_id), response, explicit_retry=True)
+
+
+@router.post("/extracted-fields/{field_id}/reviews", response_model=ApiResponse[ExtractedFieldResponse])
+def review_extracted_field(field_id: RecordId, payload: ReviewCreate, db: DB, actor: Editor):
+    with api_errors():
+        field = review_service.review_field(db, field_id, payload, actor)
+        return success(data=ExtractedFieldResponse.model_validate(field), message="Review saved")
+
+
+@router.get("/extracted-fields/{field_id}/reviews", response_model=ApiResponse[list[ReviewResponse]])
+def list_field_reviews(field_id: RecordId, filters: Annotated[RunQuery, Query()], db: DB, actor: Editor):
+    with api_errors():
+        rows, total = review_service.list_reviews(db, field_id, filters.page, filters.itemsPerPage)
+        return success(data=[ReviewResponse.model_validate(row) for row in rows],
+                       meta=paginate(filters.page, filters.itemsPerPage, total))

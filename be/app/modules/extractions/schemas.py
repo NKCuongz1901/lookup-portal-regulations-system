@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.schemas import RequestSchema
 from app.modules.extractions.field_types import FieldKey
@@ -72,5 +72,42 @@ class ExtractedFieldResponse(BaseModel):
     rule_id: str
     rule_version: str
     review_status: Literal["pending", "approved", "rejected"]
+    review_revision: int
+    reviewed_value: str | None
+    reviewed_at: datetime | None
     created_at: datetime
     evidences: list[EvidenceResponse]
+
+
+class ReviewCreate(RequestSchema):
+    action: Literal["approve", "correct", "reject"]
+    expected_revision: int = Field(ge=0)
+    idempotency_key: UUID
+    corrected_value: str | None = Field(default=None, min_length=1, max_length=20000)
+    note: str | None = Field(default=None, min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_action(self):
+        if self.action == "correct" and self.corrected_value is None:
+            raise ValueError("Corrected value is required")
+        if self.action != "correct" and self.corrected_value is not None:
+            raise ValueError("Only correct accepts a corrected value")
+        if self.action in {"correct", "reject"} and not self.note:
+            raise ValueError("A review note is required for correction or rejection")
+        return self
+
+
+class ReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    extracted_field_id: int
+    revision: int
+    action: Literal["approve", "correct", "reject"]
+    previous_status: str
+    new_status: str
+    previous_value: str
+    new_value: str
+    note: str | None
+    reviewer_id: int | None
+    reviewer_name: str
+    created_at: datetime

@@ -14,7 +14,7 @@ from app.modules.documents.registry import (
 )
 from app.modules.roles.models import Role
 from app.modules.users.models import User
-from app.modules.extractions.models import ExtractionRun, ExtractedField, FieldEvidence
+from app.modules.extractions.models import ExtractionRun, ExtractedField, FieldEvidence, FieldReview
 
 __all__ = [
     "User",
@@ -32,4 +32,5 @@ __all__ = [
     "ExtractionRun",
     "ExtractedField",
     "FieldEvidence",
+    "FieldReview",
 ]

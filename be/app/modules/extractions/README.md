@@ -302,8 +302,8 @@ live `document_segment_id` FK uses `ON DELETE SET NULL`; when re-parsing deletes
 old segments, historical quotes and snapshots remain intact. Old completed runs
 stay readable and each intentional re-run creates a separate history entry.
 
-These remain proposals. No approve/edit/reject endpoints, `field_reviews` table,
-or FE review screen are implemented as part of persistence.
+These remain proposals until an ADMIN/STAFF member reviews them through the
+review endpoints and FE screen described below.
 
 ### API (ADMIN / STAFF)
 
@@ -361,3 +361,47 @@ to `.cache/extraction-persistence/{admissions,tuition}.persisted.json`; test dat
 is rolled back and the project database is not migrated by these checks.
 Broker publication is mocked in tests; this does not verify a deployed Redis /
 Celery worker setup.
+
+## Human review and FE comparison
+
+Migration `c9a42e7d0b13` adds `field_reviews` and the fields `review_revision`,
+`reviewed_value`, `reviewed_at` on each extracted field. Run `alembic upgrade head`
+before deploying the new API/FE. Existing proposals start at revision 0.
+
+- `POST /api/v1/extracted-fields/{field_id}/reviews` saves a review atomically.
+- `GET /api/v1/extracted-fields/{field_id}/reviews?page=1&itemsPerPage=5` returns
+  audit history, newest revision first. Both endpoints require ADMIN/STAFF and
+  hide fields belonging to deleted documents.
+
+Example correction request:
+
+```json
+{
+  "action": "correct",
+  "expected_revision": 0,
+  "idempotency_key": "a0f00d12-a0e4-49a5-af60-2852aef94522",
+  "corrected_value": "20/12/2026",
+  "note": "Đã đối chiếu thời hạn trên văn bản gốc."
+}
+```
+
+`approve` and `reject` do not accept `corrected_value`. Correction and rejection
+require a nonblank note. Correction means **correct and approve**. `expected_revision`
+must match the field revision; a stale write returns 409. Retrying an identical
+request with the same key and reviewer is idempotent; reusing that key for a
+different request returns 409. Review is allowed only on completed runs.
+
+Corrections are human-authored text in `reviewed_value`. The original `raw_value`,
+machine `normalized_value`, and evidence are never overwritten. Consumers must
+use `reviewed_value` when present and check `review_status`; original normalized
+JSON must not be mistaken for a corrected machine-readable value. Rejecting a
+previously corrected field retains its value for audit purposes. Review history
+records actor identity/name, time, action, previous/new values and status, and note.
+The API does not offer editing/deleting audit entries or publishing a document.
+
+In FE, open **Văn bản → Chi tiết → Phiên bản → Đối chiếu trích xuất**. The screen
+loads the actual PDF and run/field APIs, supports run history, polling, filters,
+pagination, retry, approve/correct/reject, and review history. Selecting evidence
+jumps to its source page. Highlighting applies to the saved source text using
+Unicode code-point offsets. The current schema has no PDF bounding boxes, so
+there is no claim of pixel-accurate highlights over scanned PDF pages.

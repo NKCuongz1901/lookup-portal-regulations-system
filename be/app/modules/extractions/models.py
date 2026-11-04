@@ -60,6 +60,9 @@ class ExtractedField(Base):
     rule_id: Mapped[str] = mapped_column(String(100), nullable=False)
     rule_version: Mapped[str] = mapped_column(String(50), nullable=False)
     review_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default="pending")
+    review_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    reviewed_value: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     run: Mapped[ExtractionRun] = relationship("ExtractionRun", back_populates="fields")
     evidences: Mapped[list[FieldEvidence]] = relationship("FieldEvidence", back_populates="field", cascade="all, delete-orphan", passive_deletes=True, order_by="FieldEvidence.id")
@@ -90,3 +93,28 @@ class FieldEvidence(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     occurrence_index: Mapped[int] = mapped_column(Integer, nullable=False)
     field: Mapped[ExtractedField] = relationship("ExtractedField", back_populates="evidences")
+
+
+class FieldReview(Base):
+    __tablename__ = "field_reviews"
+    __table_args__ = (
+        UniqueConstraint("extracted_field_id", "request_key", name="uq_field_reviews_request"),
+        UniqueConstraint("extracted_field_id", "revision", name="uq_field_reviews_revision"),
+        CheckConstraint("action IN ('approve', 'correct', 'reject')", name="ck_field_reviews_action"),
+        CheckConstraint("revision > 0", name="ck_field_reviews_revision"),
+        CheckConstraint("previous_status IN ('pending', 'approved', 'rejected') AND new_status IN ('approved', 'rejected')", name="ck_field_reviews_status"),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    extracted_field_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("extracted_fields.id", ondelete="CASCADE"), nullable=False)
+    request_key: Mapped[str] = mapped_column(String(36), nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    previous_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    new_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    previous_value: Mapped[str] = mapped_column(Text, nullable=False)
+    new_value: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str | None] = mapped_column(String(2000))
+    reviewer_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"))
+    reviewer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
