@@ -87,7 +87,40 @@ digital-signature text alone must not suppress OCR of the scanned body. This is
 a conservative heuristic (under 600 native characters, image coverage at least
 80%, native text-block coverage under 15%), not a general OCR quality detector.
 
-This change does not persist rows, change version states, enqueue tasks, or run
-Celery. The next integration task can call this pipeline, then atomically replace
-the selected version's segments and update its parse status. Retry/deduplication
-and version ownership belong to that orchestration/persistence layer.
+## Persistence
+
+`segment_service.py` owns version claim / segment replace / fail marking:
+
+```python
+from app.core.database import SessionLocal
+from app.modules.extractions.segment_service import (
+    claim_version_for_parsing,
+    mark_parse_failed,
+    replace_segments_and_mark_parsed,
+)
+from app.modules.extractions.services import parse_pdf
+from app.modules.extractions.structure_extractor import extract_structure
+from app.modules.extractions.text_normalizer import normalize_pages
+
+db = SessionLocal()
+try:
+    claim_version_for_parsing(db, version_id)
+    result = extract_structure(normalize_pages(parse_pdf(pdf_bytes)))
+    replace_segments_and_mark_parsed(db, version_id, result)
+    # Keep result.full_text for later field extraction (not stored on DocumentVersion yet).
+except Exception:
+    mark_parse_failed(db, version_id)
+    raise
+finally:
+    db.close()
+```
+
+- `claim_version_for_parsing` locks the row (`FOR UPDATE`) and moves
+  `pending` / `failed` → `processing`. Concurrent workers get
+  `VersionNotClaimableError`. Use `force=True` for intentional re-parse.
+- `replace_segments_and_mark_parsed` deletes prior segments for that version,
+  inserts `to_rows()`, sets `parsed` + `parser_version` + `parsed_at` in one
+  transaction. Failure rolls back so previous segments stay.
+- `mark_parse_failed` is a separate short transaction for orchestration after
+  download/parse/replace errors.
+- Celery enqueue after upload is a separate integration step.
