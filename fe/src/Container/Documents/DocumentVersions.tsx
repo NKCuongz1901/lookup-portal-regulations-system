@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Button, Empty, Pagination, Skeleton, Tag } from "antd";
-import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, FilePdfOutlined, FileTextOutlined, FileWordOutlined, ReloadOutlined, ScanOutlined } from "@ant-design/icons";
 import { isAxiosError } from "axios";
 import { getDocumentDownload, getDocumentVersions } from "@/apis/documentApis";
 import useResource from "@/hooks/useResource";
@@ -91,6 +91,12 @@ export default function DocumentVersions({ documentId, onUploadingChange }: {
                 <div className={styles.meta}>{fileSize(version.file.size_bytes)} · Tạo lúc {dateTime.format(new Date(version.created_at))}</div>
               </div>
             </div>
+            {version.file.mime_type === "application/pdf" && <div className={styles.reviewLink}>
+              <Button icon={<ScanOutlined />} href={`/documents/${documentId}/versions/${version.id}/review`}>Đối chiếu trích xuất</Button>
+              <Tag color={version.parse_status === "parsed" ? "green" : version.parse_status === "failed" ? "red" : "gold"}>
+                {{ pending: "Chờ xử lý", processing: "Đang xử lý", parsed: "Đã xử lý nội dung", failed: "Xử lý thất bại" }[version.parse_status]}
+              </Tag>
+            </div>}
           </li>)}
         </ul>
         <div className={styles.pagination}><Pagination current={page} pageSize={pageSize} total={data.meta?.total ?? data.data.length}

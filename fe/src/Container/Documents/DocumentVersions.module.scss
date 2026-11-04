@@ -14,4 +14,5 @@
 .error { margin-bottom: 16px; }
 .pagination { display: flex; justify-content: flex-end; margin-top: 20px; }
 .emptyNote { color: #818a98; font-size: 13px; }
+.reviewLink { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; border-top: 1px solid #edf0f4; padding-top: 14px; }
 @media (max-width: 480px) { .version { padding: 14px; } .toolbar { flex-wrap: wrap; } .header > :global(.ant-btn) { height: 36px; } }

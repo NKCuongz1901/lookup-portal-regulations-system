@@ -3,20 +3,18 @@ import { useCallback, useEffect, useState } from "react";
 import { requestError } from "@/ultis/requestError";
 
 export default function useResource<T>(loader: (signal: AbortSignal) => Promise<T>) {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [result, setResult] = useState<{ loader: typeof loader; revision: number; data: T | null; error: string | null } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true); setError(null);
-    loader(controller.signal).then((result) => {
-      if (!controller.signal.aborted) setData(result);
+    Promise.resolve().then(() => loader(controller.signal)).then((data) => {
+      if (!controller.signal.aborted) setResult({ loader, revision, data, error: null });
     }).catch((error) => {
-      if (!controller.signal.aborted) { setData(null); setError(requestError(error)); }
-    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      if (!controller.signal.aborted) setResult({ loader, revision, data: null, error: requestError(error) });
+    });
     return () => controller.abort();
   }, [loader, revision]);
   const reload = useCallback(() => setRevision((value) => value + 1), []);
-  return { data, loading, error, reload };
+  const loading = result?.loader !== loader || result?.revision !== revision;
+  return { data: result?.data ?? null, loading, error: loading ? null : result?.error ?? null, reload };
 }

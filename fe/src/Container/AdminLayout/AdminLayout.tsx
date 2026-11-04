@@ -20,7 +20,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const role = user.roles.includes("ADMIN") ? "Quản trị viên" : "Nhân viên";
-  const title = pathname === mainRoutes.users ? "Người dùng" : pathname === mainRoutes.documents ? "Văn bản"
+  const documentPage = pathname === mainRoutes.documents || pathname.startsWith(`${mainRoutes.documents}/`);
+  const title = pathname === mainRoutes.users ? "Người dùng" : documentPage ? "Văn bản"
     : pathname === mainRoutes.documentTypes ? "Loại văn bản" : pathname === mainRoutes.issuingUnits ? "Đơn vị ban hành"
     : pathname === mainRoutes.tags ? "Thẻ (Tags)" : "Tổng quan";
   const date = new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
@@ -45,7 +46,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     </Dropdown>
     <div className={styles.navLabel}>QUẢN LÝ</div>
     <nav aria-label="Điều hướng chính">
-      <Menu mode="inline" selectedKeys={[pathname]} items={[
+      <Menu mode="inline" selectedKeys={[documentPage ? mainRoutes.documents : pathname]} items={[
         { key: mainRoutes.users, icon: <TeamOutlined />, label: "Người dùng" },
         { key: mainRoutes.documents, icon: <FileTextOutlined />, label: "Văn bản" },
         { key: mainRoutes.documentTypes, icon: <FolderOutlined />, label: "Loại văn bản" },

@@ -82,6 +82,33 @@ def main():
                         created_at=created_at, updated_at=created_at,
                     ))
                 db.commit()
+                if os.environ.get("EXTRACTION_REVIEW_SMOKE") == "1":
+                    import json
+                    from app.models import DocumentVersion, StoredFile
+                    from app.modules.documents.enums import DocumentParseStatus
+                    from app.modules.documents import services as document_services
+                    from app.modules.extractions.result_service import create_run, execute_run
+                    from app.modules.extractions.segment_service import replace_segments_and_mark_parsed
+                    from app.modules.extractions.structure_extractor import extract_structure
+                    from app.modules.extractions.text_normalizer import normalize_pages
+
+                    stored = StoredFile(storage_provider="r2", storage_key="test/tuition.pdf",
+                        original_name="Quy định xét giảm học phí.pdf", mime_type="application/pdf",
+                        size_bytes=(BACKEND / ".cache/extraction-smoke/tuition-notice.pdf").stat().st_size,
+                        uploaded_by=users[0].id)
+                    db.add(stored)
+                    db.flush()
+                    version = DocumentVersion(document_id=1, version_number=1, file_id=stored.id,
+                        is_current=True, parse_status=DocumentParseStatus.PROCESSING, created_by=users[0].id)
+                    db.add(version)
+                    db.commit()
+                    pages = json.loads((BACKEND / ".cache/extraction-smoke/tuition-notice.pages.json").read_text())
+                    replace_segments_and_mark_parsed(db, version.id, extract_structure(normalize_pages(pages)), create_field_run=True)
+                    run = create_run(db, version.id)
+                    execute_run(db, run.id)
+                    # Used only with tests/helpers/mock-r2.mjs; no real R2 requests.
+                    document_services.generate_download_url = lambda **kwargs: "https://ui-test.r2.cloudflarestorage.com/tuition.pdf"
+                    print(f"Extraction review fixture: /documents/1/versions/{version.id}/review", flush=True)
             lock = Lock()
 
             def test_db():

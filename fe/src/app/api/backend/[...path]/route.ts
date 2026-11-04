@@ -6,7 +6,7 @@ import { readDocumentUpload, UploadValidationError } from "@/ultis/serverUpload"
 
 export async function GET(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
-  if (!/^(users|documents(?:\/\d+(?:\/(?:versions|download-url))?)?|(?:document-types|issuing-units|tags)(?:\/[1-9]\d*)?)$/.test(path)) {
+  if (!/^(users|documents(?:\/\d+(?:\/(?:versions|download-url))?)?|(?:document-types|issuing-units|tags)(?:\/[1-9]\d*)?|document-versions\/[1-9]\d*\/extraction-runs|extraction-runs\/[1-9]\d*(?:\/fields)?|extracted-fields\/[1-9]\d*\/reviews)$/.test(path)) {
     return apiError(404, "Not found");
   }
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -62,7 +62,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ p
 export async function POST(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const path = (await context.params).path.join("/");
   const isUpload = /^documents\/\d+\/versions$/.test(path);
-  if (!["documents", "document-types", "issuing-units", "tags"].includes(path) && !isUpload) return apiError(404, "Not found");
+  const isExtraction = /^(document-versions\/[1-9]\d*\/extraction-runs|extraction-runs\/[1-9]\d*\/retry|extracted-fields\/[1-9]\d*\/reviews)$/.test(path);
+  if (!["documents", "document-types", "issuing-units", "tags"].includes(path) && !isUpload && !isExtraction) return apiError(404, "Not found");
   if (!sameOrigin(request)) return apiError(403, "Invalid origin");
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return apiError(401, "Authentication required");
