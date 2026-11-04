@@ -123,4 +123,16 @@ finally:
   transaction. Failure rolls back so previous segments stay.
 - `mark_parse_failed` is a separate short transaction for orchestration after
   download/parse/replace errors.
-- Celery enqueue after upload is a separate integration step.
+
+## Celery
+
+`tasks.process_document(document_version_id)` runs the full pipeline on a worker.
+PDF uploads call `enqueue_document_parse` after the version row is committed.
+Non-PDF uploads are not enqueued. Broker errors leave `parse_status=pending`.
+
+```bash
+# from be/
+celery -A app.core.celery_app.celery_app worker -l info
+```
+
+Worker must list `extractions.process_document` under `[tasks]`.

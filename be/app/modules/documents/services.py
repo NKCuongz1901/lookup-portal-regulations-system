@@ -19,6 +19,7 @@ from app.modules.documents.models import Document, DocumentVersion
 from app.modules.documents.schemas import (
     DocumentCreate, DocumentDownloadResponse, DocumentFilter, DocumentUpdate, DocumentVersionQuery,
 )
+from app.modules.extractions.tasks import enqueue_document_parse
 from app.modules.files.models import StoredFile
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
@@ -282,4 +283,6 @@ async def upload_version(
             pass
         raise
 
+    # Commit already succeeded: enqueue parse without failing the upload response.
+    enqueue_document_parse(version_id, mime_type=mime_type)
     return _get_version_with_file(db, version_id)
