@@ -136,3 +136,111 @@ celery -A app.core.celery_app.celery_app worker -l info
 ```
 
 Worker must list `extractions.process_document` under `[tasks]`.
+
+## Step 4.3 — rule-based field extraction
+
+`field_extractor.extract_fields(segments)` is pure Python. It returns pending
+review candidates for `deadline`, `obligation`, `applicable_subject`, and
+`legal_basis`. It does not call an LLM, PDF parser, R2, Redis, or PostgreSQL.
+Four independent rule modules live in `rules/`; contracts live in
+`field_types.py`. Current `rule_version` is `fields-1.0`.
+
+For stored data, use the read service:
+
+```python
+import app.models  # Register all ORM relationships.
+from app.core.database import SessionLocal
+from app.modules.extractions.field_service import extract_fields_for_version
+
+with SessionLocal() as db:
+    result = extract_fields_for_version(db, document_version_id=12)
+    payload = result.to_dict()
+```
+
+The service accepts only a non-deleted document's `parsed` version with segments.
+It sorts by `segment_index` and reads the requested version only. A shared lock
+on the version prevents the existing parser from replacing its segments during
+the read transaction. The caller owns authorization and session lifetime; the
+service does not commit, enqueue, change statuses, or persist fields. Missing
+versions, unparsed versions, and missing segments produce distinct exceptions.
+
+### Candidates and evidence
+
+- Each candidate has `field_key`, per-field `item_index`, `raw_value`, a typed
+  `normalized_value` object, `rule_id`, `rule_version`, `review_status=pending`,
+  and an `evidences` list. Pending is a proposal marker, not a saved review record
+  or a claim that the extracted information has been verified.
+- Each evidence has the actual `document_segment_id`, `segment_index`, source
+  page/section, `quote`, and local `start_offset` / `end_offset`. The invariant is
+  `segment.content[start_offset:end_offset] == quote`. Offsets use Python Unicode
+  characters, not bytes or JavaScript UTF-16 code units. No second normalization
+  of segment text is performed before matching.
+- `role=value` identifies the literal matched text. `role=context` retains
+  surrounding conditions/actions or the actual subject heading. A match can
+  span adjacent unfinished segments/pages; each piece cites its own source.
+  A synthetic newline joins such segments only in the in-memory matching view.
+- Repeated values in identical textual and section context share one candidate,
+  with all source occurrences retained (`occurrence_index`). Same dates with
+  different actions/conditions remain separate. No numeric confidence score is
+  invented. Source IDs are `null` only for dry runs before segment persistence.
+- Local offsets do not require a stored full-document `full_text`. They refer
+  directly to the saved segment content. Re-parsing currently replaces those
+  rows, so Step 4.4 must define immutable parse history or an evidence snapshot
+  policy before keeping long-lived reviews that reference segment IDs.
+
+### Supported rules and limits
+
+- Deadlines: explicit before/on-or-before dates (`DD/MM/YYYY`, `DD-MM-YYYY`,
+  `ngày D tháng M năm YYYY`), application date ranges including shared month/year
+  notation, numeric relative durations and beginning/end-of-period recurrence.
+  Calendar dates are validated. Relative deadlines preserve the anchor text;
+  no due date is calculated and missing years are not guessed. Opening dates,
+  bare publication dates, exam schedules and exam durations are not deadlines.
+- Obligations: explicit `phải`, `có trách nhiệm`, `bắt buộc`, including a trailing
+  `(bắt buộc)` marker. Common negation, optional wording and questions are
+  excluded. Positive requirements after `nhưng` remain discoverable. Implicit
+  instructions without these markers are not comprehensively detected.
+- Subjects: explicit application/subject markers, and subject lists under an
+  actual applicable-subject heading. Heading evidence is retained. Eligibility
+  conditions stay verbatim; they are not converted into a decision about a user.
+- Legal bases: explicitly introduced laws/codes or numbered decrees, circulars,
+  decisions and regulations. Generic `căn cứ xét tuyển` / `theo quy định` is
+  excluded. Reference numbers are copied as OCR produced them, not corrected or
+  checked against a legal database. Issue dates are not deadline candidates.
+
+These are conservative text heuristics, not a complete Vietnamese semantic
+parser. Lists introduced by `sau:` may need multiple candidates read together.
+Some common OCR joins are accepted by regex, but garbled table cells, lost
+words, complex exclusions, spelled-out durations and ambiguous cross-section
+references need manual review or later rules. Cross-segment joining is bounded
+to unfinished adjacent paragraphs in the same section, at most 8,000 characters;
+it does not reconstruct tables. Counts of candidates are not precision/recall.
+
+### Run and test
+
+Run from `be/`. PDF/R2 inputs are optional dry-run conveniences which run Step
+4.2 first. Production Step 4.3 reads saved segments via `--version-id`.
+
+```bash
+.venv/bin/python -m scripts.extract_fields \
+  --version-id 12 --output .cache/fields/version-12.json
+
+.venv/bin/python -m scripts.extract_fields \
+  --segments-json .cache/extraction/result.json \
+  --output .cache/fields/result.json --text-output .cache/fields/result.txt
+
+.venv/bin/python -m scripts.extract_fields \
+  --pdf /path/to/input.pdf --output .cache/fields/result.json
+
+.venv/bin/python -m scripts.extract_fields \
+  --r2-key 'documents/2/exact-object-key.pdf' --output .cache/fields/result.json
+
+.venv/bin/python -m pytest -q tests/test_field_extractor.py tests/test_field_service.py
+# With TEST_DATABASE_URL pointing to a test PostgreSQL instance:
+.venv/bin/python -m pytest -q tests/postgres/test_field_extraction.py
+```
+
+The CLI writes only local JSON/text reports. Step 4.4 (extraction-run/field/
+evidence/review tables and migrations) is not implemented here. The upload parse
+task remains focused on saving segments; it does not discard field proposals
+by running Step 4.3 before there is a persistence destination for them.
