@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.modules.auth.router import router as auth_router
 from app.modules.document_metadata.router import router as document_metadata_router
 from app.modules.documents.router import router as documents_router
+from app.modules.extractions.router import router as extractions_router
 from app.modules.users.router import router as users_router
 
 app = FastAPI(
@@ -24,6 +25,7 @@ api_v1.include_router(auth_router)
 api_v1.include_router(users_router)
 api_v1.include_router(document_metadata_router)
 api_v1.include_router(documents_router)
+api_v1.include_router(extractions_router)
 app.include_router(api_v1)
 
 

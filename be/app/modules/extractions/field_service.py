@@ -22,7 +22,7 @@ def extract_fields_for_version(db: Session, document_version_id: int) -> FieldEx
 
     A shared row lock prevents a concurrent parser from replacing the source
     while it is read. No commit/rollback here; caller closes the read transaction.
-    Results are ephemeral; Step 4.4 must define evidence history before re-parse.
+    Persistence/orchestration belongs to result_service, which saves snapshots.
     """
     if type(document_version_id) is not int or document_version_id <= 0:
         raise ValueError("document_version_id must be a positive integer")

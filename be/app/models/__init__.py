@@ -14,6 +14,7 @@ from app.modules.documents.registry import (
 )
 from app.modules.roles.models import Role
 from app.modules.users.models import User
+from app.modules.extractions.models import ExtractionRun, ExtractedField, FieldEvidence
 
 __all__ = [
     "User",
@@ -28,4 +29,7 @@ __all__ = [
     "DocumentRelation",
     "DocumentTag",
     "DocumentSegment",
+    "ExtractionRun",
+    "ExtractedField",
+    "FieldEvidence",
 ]

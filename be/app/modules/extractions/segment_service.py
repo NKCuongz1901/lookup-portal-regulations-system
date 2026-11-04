@@ -87,6 +87,8 @@ def replace_segments_and_mark_parsed(
     db: Session,
     document_version_id: int,
     result: ExtractionResult,
+    *,
+    create_field_run: bool = False,
 ) -> int:
     """Atomically replace segments and mark the version ``parsed``.
 
@@ -132,6 +134,12 @@ def replace_segments_and_mark_parsed(
         version.parse_status = DocumentParseStatus.PARSED
         version.parser_version = result.parser_version[:50]
         version.parsed_at = datetime.now(timezone.utc)
+        if create_field_run:
+            # Persist the work request with segments, even if enqueue later fails.
+            from app.modules.extractions.result_service import ensure_automatic_run
+
+            db.flush()
+            ensure_automatic_run(db, version)
         db.commit()
         return len(rows)
     except Exception:

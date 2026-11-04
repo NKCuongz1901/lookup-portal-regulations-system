@@ -72,7 +72,9 @@ def normalize_sql(sql):
 
 def test_models_register_alongside_auth_and_resolve_foreign_keys():
     configure_mappers()
-    assert set(Base.metadata.tables) == DOCUMENT_TABLES | {"users", "roles", "user_roles"}
+    assert set(Base.metadata.tables) == DOCUMENT_TABLES | {
+        "users", "roles", "user_roles", "extraction_runs", "extracted_fields", "field_evidences",
+    }
     for table_name in DOCUMENT_TABLES:
         for foreign_key in Base.metadata.tables[table_name].foreign_keys:
             assert foreign_key.column.table.metadata is Base.metadata

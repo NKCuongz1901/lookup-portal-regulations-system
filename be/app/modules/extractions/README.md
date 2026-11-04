@@ -184,9 +184,8 @@ versions, unparsed versions, and missing segments produce distinct exceptions.
   different actions/conditions remain separate. No numeric confidence score is
   invented. Source IDs are `null` only for dry runs before segment persistence.
 - Local offsets do not require a stored full-document `full_text`. They refer
-  directly to the saved segment content. Re-parsing currently replaces those
-  rows, so Step 4.4 must define immutable parse history or an evidence snapshot
-  policy before keeping long-lived reviews that reference segment IDs.
+  directly to the saved segment content. Step 4.4 copies that content into an
+  evidence snapshot, preserving its meaning after re-parsing replaces the rows.
 
 ### Supported rules and limits
 
@@ -240,7 +239,125 @@ Run from `be/`. PDF/R2 inputs are optional dry-run conveniences which run Step
 .venv/bin/python -m pytest -q tests/postgres/test_field_extraction.py
 ```
 
-The CLI writes only local JSON/text reports. Step 4.4 (extraction-run/field/
-evidence/review tables and migrations) is not implemented here. The upload parse
-task remains focused on saving segments; it does not discard field proposals
-by running Step 4.3 before there is a persistence destination for them.
+The Step 4.3 CLI still writes only local JSON/text reports. For persisted runs,
+use the Step 4.4 services, task, or authenticated endpoints below.
+
+## Step 4.4 — persisted runs, proposals and evidence
+
+Migration `b8f31d2c9a60` adds `extraction_runs`, `extracted_fields` and
+`field_evidences`. Existing documents, versions and segments are not modified.
+Apply the migration before restarting the API and Celery worker with this code:
+
+```bash
+# From be/, using the database configured for your intended environment:
+.venv/bin/alembic upgrade head
+.venv/bin/celery -A app.core.celery_app.celery_app worker -l info
+```
+
+The worker must register both `extractions.process_document` and
+`extractions.extract_document_fields`. This change does not migrate your live
+database automatically and does not need a new Python dependency.
+
+### Lifecycle and recovery
+
+1. The upload API commits a version and queues the existing parse task.
+2. The parse worker saves segments, marks the version `parsed`, and creates a
+   pending automatic extraction run **in the same transaction**.
+3. After commit it publishes the field task using the run ID. Automatic requests
+   deduplicate by version, source generation and rule version.
+4. The field worker claims `pending`/`failed` work (or an expired lease), increments
+   the attempt count and runs Step 4.3 over persisted segments. It atomically
+   saves fields/evidence and marks the run `completed`, including zero-candidate
+   results. All new fields have `review_status=pending`.
+5. On failure, the transaction rolls back and the run is marked `failed` in a
+   separate transaction. Its public error is sanitized. `parse_status` and the
+   already-saved segments are unaffected.
+
+Version/run locks use a consistent order. A 10-minute lease and execution token
+exclude active duplicate attempts and fence off a superseded worker. Completed
+runs are immutable to retry. DB connectivity errors retry up to three times with
+backoff. Field tasks use late acknowledgement; see the official
+[Celery task documentation](https://docs.celeryq.dev/en/stable/userguide/tasks.html#acks-late).
+Hard-killed workers can still require manual retry after lease expiry; there is
+no periodic recovery scheduler in this change.
+
+A failed broker publish leaves a durable pending run with
+`error_code=queue_unavailable`; the API returns 503 with that run's ID. Retry the
+same run when Redis is available. A crash after the parse commit but before
+publish can likewise leave a pending run; the retry endpoint handles it without
+re-downloading or re-parsing the PDF. Old unparsed uploads are not backfilled.
+
+Each run records a hash of the exact source segment IDs/content/metadata,
+parser version and source parse timestamp. If those change while work is queued,
+the run fails with `source_changed`; create a new run. If the installed rules no
+longer match the requested version, the error is `rule_version_changed`. A retry
+never silently substitutes new input/rules for an old run.
+
+### Historical evidence
+
+Every evidence saves the complete `segment_content_snapshot`, page, section,
+original `source_segment_id`, quote and local offsets. PostgreSQL constraints
+also enforce that the quote equals the indicated snapshot slice. Its optional
+live `document_segment_id` FK uses `ON DELETE SET NULL`; when re-parsing deletes
+old segments, historical quotes and snapshots remain intact. Old completed runs
+stay readable and each intentional re-run creates a separate history entry.
+
+These remain proposals. No approve/edit/reject endpoints, `field_reviews` table,
+or FE review screen are implemented as part of persistence.
+
+### API (ADMIN / STAFF)
+
+All paths below are prefixed with `/api/v1`; they use the existing `ApiResponse`
+envelope. Deleted documents are hidden from every endpoint.
+
+| Method | Path | Result |
+| --- | --- | --- |
+| GET | `/document-versions/{version_id}/extraction-runs` | Run history, newest first |
+| GET | `/extraction-runs/{run_id}` | Status, counts, parser/rule versions, errors and timing |
+| GET | `/extraction-runs/{run_id}/fields` | Fields with evidence snapshots |
+| POST | `/document-versions/{version_id}/extraction-runs` | Create/queue an intentional run |
+| POST | `/extraction-runs/{run_id}/retry` | Retry the same run without duplicating fields |
+
+Lists support `page` and `itemsPerPage` (1–100). The fields endpoint additionally
+accepts `field_key` and `review_status` filters. Run detail is metadata; fields
+are retrieved separately so large evidence snapshots are paginated.
+
+Create body: `{"idempotency_key": "<client-generated UUID>"}`. Reuse the UUID
+for HTTP retries; generate a new one to intentionally create a new run. Keys
+are scoped to the document version. Queue acceptance returns 202, an already
+completed request returns 200, stale/unparsed sources or an active explicit
+retry return 409. The field task does not run inside the HTTP request.
+
+For internal scripts/workers, `result_service.create_run(db, version_id, ...)`
+and `result_service.execute_run(db, run_id)` provide the same lifecycle. These
+functions own commits/rollbacks and require a dedicated session, unlike the
+read-only Step 4.3 service. Callers remain responsible for authorization.
+
+### Validation
+
+```bash
+.venv/bin/python -m pytest -q tests --ignore=tests/postgres
+# PostgreSQL test account must be allowed to create isolated schemas:
+.venv/bin/python -m pytest -q tests/postgres/test_extraction_results.py
+```
+
+PostgreSQL tests cover migration round trips, atomic rollback, retry/idempotency,
+lease fencing, source changes, snapshot survival, API permissions, pagination
+and queue failure. They use the existing rollback-only test schema fixture.
+
+With the two previously downloaded R2 PDFs' page text available under
+`.cache/extraction-smoke/`, enable the optional persistence smoke tests:
+
+```bash
+# TEST_DATABASE_URL must point to an isolated test PostgreSQL instance.
+RUN_EXTRACTION_PDF_SMOKE=1 .venv/bin/python -m pytest -q tests --tb=short
+```
+
+Verified on 2026-11-04 against a temporary PostgreSQL 16 instance with ICU
+collation: **260 tests passed**. The admissions PDF produced 13 stored candidates
+and 33 evidence rows; the tuition notice produced 3 candidates and 6 evidence
+rows. Every quote matched its saved segment slice and page. Reports are written
+to `.cache/extraction-persistence/{admissions,tuition}.persisted.json`; test data
+is rolled back and the project database is not migrated by these checks.
+Broker publication is mocked in tests; this does not verify a deployed Redis /
+Celery worker setup.
