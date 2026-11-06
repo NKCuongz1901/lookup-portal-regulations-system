@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 
 FieldKey = Literal["deadline", "obligation", "applicable_subject", "legal_basis"]
-RULE_VERSION = "fields-1.0"
+RULE_VERSION = "fields-1.1"
 
 
 @dataclass(frozen=True)

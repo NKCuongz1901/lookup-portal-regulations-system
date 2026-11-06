@@ -143,7 +143,7 @@ Worker must list `extractions.process_document` under `[tasks]`.
 review candidates for `deadline`, `obligation`, `applicable_subject`, and
 `legal_basis`. It does not call an LLM, PDF parser, R2, Redis, or PostgreSQL.
 Four independent rule modules live in `rules/`; contracts live in
-`field_types.py`. Current `rule_version` is `fields-1.0`.
+`field_types.py`. Current `rule_version` is `fields-1.1`.
 
 For stored data, use the read service:
 
@@ -176,7 +176,7 @@ versions, unparsed versions, and missing segments produce distinct exceptions.
   characters, not bytes or JavaScript UTF-16 code units. No second normalization
   of segment text is performed before matching.
 - `role=value` identifies the literal matched text. `role=context` retains
-  surrounding conditions/actions or the actual subject heading. A match can
+  surrounding conditions/actions or the actual subject/legal-basis heading. A match can
   span adjacent unfinished segments/pages; each piece cites its own source.
   A synthetic newline joins such segments only in the in-memory matching view.
 - Repeated values in identical textual and section context share one candidate,
@@ -203,9 +203,19 @@ versions, unparsed versions, and missing segments produce distinct exceptions.
   actual applicable-subject heading. Heading evidence is retained. Eligibility
   conditions stay verbatim; they are not converted into a decision about a user.
 - Legal bases: explicitly introduced laws/codes or numbered decrees, circulars,
-  decisions and regulations. Generic `căn cứ xét tuyển` / `theo quy định` is
-  excluded. Reference numbers are copied as OCR produced them, not corrected or
-  checked against a legal database. Issue dates are not deadline candidates.
+  decisions, regulations and plans. References starting a paragraph/list item
+  under an actual `Căn cứ`, `Căn cứ pháp lý`, `Căn cứ đánh giá` or `Cơ sở pháp lý`
+  heading also qualify; evidence retains that heading. Context stops at the next
+  heading, unrelated section or missing source chunk. Generic `căn cứ xét tuyển`,
+  `theo quy định`, unnumbered plans and standalone mentions in reported activities
+  are excluded. Reference numbers are copied as OCR produced them, not corrected
+  or checked against a legal database. Issue dates are not deadline candidates.
+
+A report can parse successfully into many segments while yielding no candidates
+for these four fields. Activities, results, assessments and proposed solutions
+are not additional field types. Updating rules requires a new extraction run
+(restart API/worker and use **Trích xuất lại**); completed runs and reviews keep
+their original rule version and evidence.
 
 These are conservative text heuristics, not a complete Vietnamese semantic
 parser. Lists introduced by `sau:` may need multiple candidates read together.

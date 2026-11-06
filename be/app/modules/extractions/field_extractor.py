@@ -12,7 +12,7 @@ from app.modules.extractions.field_types import (
 )
 from app.modules.extractions.rules.common import clean
 from app.modules.extractions.rules.deadline_rules import find_deadlines
-from app.modules.extractions.rules.legal_basis_rules import find_legal_bases
+from app.modules.extractions.rules.legal_basis_rules import find_legal_bases, is_legal_basis_heading
 from app.modules.extractions.rules.obligation_rules import find_obligations
 from app.modules.extractions.rules.subject_rules import find_subjects, is_subject_heading
 from app.modules.extractions.structure_rules import match_outline, match_structure
@@ -28,6 +28,7 @@ class _Block:
     spans: list[tuple[int, int, FieldSegment]]
     heading: FieldSegment | None
     is_heading: bool
+    basis_heading: FieldSegment | None
 
     def append(self, segment: FieldSegment) -> None:
         start = len(self.text) + 1
@@ -65,8 +66,15 @@ def _segments(values: Iterable[FieldSegment | Mapping[str, Any]]) -> list[FieldS
 def _blocks(rows: list[FieldSegment]) -> list[_Block]:
     blocks: list[_Block] = []
     heading = None
+    basis_heading = None
     previous = None
     for row in rows:
+        if basis_heading and (
+            previous is None or row.segment_index != previous.segment_index + 1
+            or (row.page_number is not None and previous.page_number is not None
+                and not 0 <= row.page_number - previous.page_number <= 1)
+        ):
+            basis_heading = None
         text = row.content.strip()
         counter = _PAGE_MARKER.fullmatch(text)
         if counter and row.page_number == int(counter[1] or counter[2]):
@@ -77,11 +85,16 @@ def _blocks(rows: list[FieldSegment]) -> list[_Block]:
         match = match_structure(text)
         is_heading = text == title or bool(match and match.kind in {"chapter", "section", "article"}) or bool(match_outline(text))
         is_heading = is_heading or (len(text) < 150 and is_subject_heading(text) and text.endswith(":") and not _LIST_START.match(text))
+        is_heading = is_heading or is_legal_basis_heading(text)
         if is_heading:
             heading = row if is_subject_heading(text) else None
+            basis_heading = row if is_legal_basis_heading(text) else None
         elif heading and heading.section_title != row.section_title:
             if not (heading.section_title and (row.section_title or "").startswith(heading.section_title + " / ")):
                 heading = None
+        if basis_heading and basis_heading.section_title != row.section_title:
+            if not (basis_heading.section_title and (row.section_title or "").startswith(basis_heading.section_title + " / ")):
+                basis_heading = None
         join = bool(
             blocks and previous and not blocks[-1].is_heading and not is_heading
             and row.segment_index == previous.segment_index + 1
@@ -95,7 +108,7 @@ def _blocks(rows: list[FieldSegment]) -> list[_Block]:
         if join:
             blocks[-1].append(row)
         else:
-            blocks.append(_Block(row.content, [(0, len(row.content), row)], heading, is_heading))
+            blocks.append(_Block(row.content, [(0, len(row.content), row)], heading, is_heading, basis_heading))
         previous = row
     return blocks
 
@@ -132,7 +145,7 @@ def extract_fields(
         hits = (
             find_deadlines(block.text) + find_obligations(block.text)
             + find_subjects(block.text, subject_context=block.heading is not None and not block.is_heading)
-            + find_legal_bases(block.text)
+            + find_legal_bases(block.text, basis_context=block.basis_heading is not None and not block.is_heading)
         )
         for hit in sorted(hits, key=lambda item: (item.start, item.field_key, item.end)):
             if not 0 <= hit.context_start <= hit.start < hit.end <= hit.context_end <= len(block.text):
@@ -145,8 +158,10 @@ def extract_fields(
             evidence = _evidence(block, hit.start, hit.end, "value", occurrence)
             if (hit.context_start, hit.context_end) != (hit.start, hit.end):
                 evidence.extend(_evidence(block, hit.context_start, hit.context_end, "context", occurrence))
-            if hit.rule_id == "subject.heading_context" and block.heading:
-                row = block.heading
+            context_heading = (block.heading if hit.rule_id == "subject.heading_context"
+                               else block.basis_heading if hit.rule_id == "legal_basis.heading_context" else None)
+            if context_heading:
+                row = context_heading
                 evidence.append(FieldEvidence(row.id, row.segment_index, row.page_number, row.section_title,
                                               0, len(row.content), row.content, "context", occurrence))
             if old_index is not None:

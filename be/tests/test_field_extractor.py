@@ -187,6 +187,8 @@ def test_legal_clause_inherits_subject_article_heading():
     ("Căn cứNghịđịnh 81/ND-CP ngày 27/8/2021 của Thủtướng Chính phủ.", "decree", "81/ND-CP", "2021-08-27"),
     ("Theo Thông tư số 08/2021/TT-BGDĐT ngày 18 tháng 3 năm 2021.", "circular", "08/2021/TT-BGDĐT", "2021-03-18"),
     ("Theo Luật Giáo dục năm 2019.", "law", None, None),
+    ("Căn cứ Kế hoạch số 198/KH-ĐHKTĐN ngày 28 tháng 8 năm 2024.", "plan", "198/KH-ĐHKTĐN", "2024-08-28"),
+    ("Theo Kếhoạch số198/KH-ĐHKTĐN ngày 28/8/2024.", "plan", "198/KH-ĐHKTĐN", "2024-08-28"),
 ])
 def test_legal_references(text, kind, number, issue_date):
     found = fields(text, "legal_basis")
@@ -196,9 +198,89 @@ def test_legal_references(text, kind, number, issue_date):
     assert not fields(text, "deadline")
 
 
-@pytest.mark.parametrize("text", ["Căn cứ xét tuyển: điểm thi THPT.", "Theo quy định của nhà trường.", "Căn cứ vào kế hoạch năm học."])
+@pytest.mark.parametrize("text", [
+    "Căn cứ xét tuyển: điểm thi THPT.", "Theo quy định của nhà trường.",
+    "Căn cứ vào kế hoạch năm học.", "Theo kế hoạch công tác năm học 2024-2025.",
+    "Đã ban hành Kế hoạch số 198/KH-ĐHKTĐN ngày 28/8/2024.",
+    "Kế hoạch số 198/KH-ĐHKTĐN ngày 28/8/2024.",
+])
 def test_no_generic_text_as_legal_instrument(text):
     assert not fields(text, "legal_basis")
+
+
+@pytest.mark.parametrize("heading", [
+    "I. Căn cứđánh giá", "Căn cứ pháp lý:", "CĂN CỨ", "2. Cơ sở pháp lý", "Điều 1. Căn cứ pháp lý",
+])
+def test_legal_basis_heading_retains_source_evidence(heading):
+    rows = [FieldSegment(0, heading, 10, 1),
+            FieldSegment(1, "- _ Kếhoạch đảm bảo chất lượng số198/KH-ĐHKTĐN ban hành ngày 28 tháng 8 năm 2024", 11, 1),
+            FieldSegment(2, "- Kế hoạch công tác năm học 2024-2025 của các đơn vị Nhà trường.", 12, 1)]
+    result = extract_fields(rows)
+    audit(result, rows)
+    assert len(result.candidates) == 1
+    candidate = result.candidates[0]
+    assert candidate.field_key == "legal_basis"
+    assert candidate.rule_id == "legal_basis.heading_context"
+    assert candidate.normalized_value["document_type"] == "plan"
+    assert candidate.normalized_value["document_number"] == "198/KH-ĐHKTĐN"
+    assert candidate.normalized_value["issue_date"] == "2024-08-28"
+    assert candidate.raw_value.startswith("Kếhoạch")
+    assert any(e.document_segment_id == 10 and e.role == "context" and e.quote == heading
+               for e in candidate.evidences)
+
+
+@pytest.mark.parametrize("boundary", ["next_heading", "section", "index_gap", "page_gap", "missing_counter", "false_heading"])
+def test_legal_basis_context_does_not_leak(boundary):
+    heading = FieldSegment(0, "I. Căn cứ đánh giá", 10, 1, "Báo cáo / I. Căn cứ đánh giá")
+    reference = FieldSegment(1, "- Kế hoạch số 198/KH-ĐHKTĐN.", 11, 1, heading.section_title)
+    rows = [heading, reference]
+    if boundary == "next_heading":
+        rows = [heading, FieldSegment(1, "II. Kết quả thực hiện", 12, 1), replace(reference, segment_index=2)]
+    elif boundary == "section":
+        rows[1] = replace(reference, section_title="Báo cáo / II. Kết quả thực hiện")
+    elif boundary == "index_gap":
+        rows[1] = replace(reference, segment_index=5)
+    elif boundary == "page_gap":
+        rows[1] = replace(reference, page_number=4)
+    elif boundary == "missing_counter":
+        rows = [heading, FieldSegment(4, "1", 12, 1), replace(reference, segment_index=5, page_number=2)]
+    elif boundary == "false_heading":
+        rows[0] = replace(heading, content="Căn cứ xét tuyển: điểm thi THPT.")
+    assert not extract_fields(rows).candidates
+
+
+def test_legal_basis_cross_page_reference_and_multiple_instruments():
+    title = "Căn cứ pháp lý"
+    rows = [FieldSegment(0, title, 10, 1, title),
+            FieldSegment(1, "- Kế hoạch số 198/KH-ĐHKTĐN ban hành ngày", 11, 1, title),
+            FieldSegment(2, "1", 12, 1),
+            FieldSegment(3, "28 tháng 8 năm 2024", 13, 2, title),
+            FieldSegment(4, "- Nghị định số 81/2021/NĐ-CP ngày 27/8/2021.", 14, 2, title)]
+    result = extract_fields(rows)
+    audit(result, rows)
+    assert len(result.candidates) == 2
+    assert [c.normalized_value["document_type"] for c in result.candidates] == ["plan", "decree"]
+    assert result.candidates[0].normalized_value["issue_date"] == "2024-08-28"
+    assert {e.document_segment_id for e in result.candidates[0].evidences if e.role == "value"} == {11, 13}
+
+
+def test_real_quality_report_excerpt_from_structure_to_fields():
+    from app.modules.extractions.structure_extractor import extract_structure
+    from app.modules.extractions.text_normalizer import normalize_pages
+
+    structure = extract_structure(normalize_pages([{"page_number": 1, "content":
+        "BÁO CÁO\nI. Căn cứđánh giá\n"
+        "- _ Kếhoạch đảm bảo chất lượng số198/KH-ĐHKTĐN ban hành ngày 28 tháng 8 năm 2024\n"
+        "- _ Kếhoạch công tác năm học 2024-2025 của các đơn vịNhà trường.\n"
+        "II. Kết quả thực hiện\n- Kế hoạch số 200/KH-ĐHKTĐN được triển khai.\n"
+        "III. Đánh giá chung\n- Các hoạt động được thực hiện đúng kế hoạch.\n"
+        "IV. Giải pháp\n- Tăng cường công tác đảm bảo chất lượng."}]))
+    rows = [FieldSegment(**{key: value for key, value in row.items() if key in FieldSegment.__dataclass_fields__})
+            for row in structure.to_rows()]
+    result = extract_fields(rows)
+    audit(result, rows)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].normalized_value["document_number"] == "198/KH-ĐHKTĐN"
 
 
 def test_cross_page_provenance_with_counter_and_emoji():
