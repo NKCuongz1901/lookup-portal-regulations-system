@@ -1,4 +1,4 @@
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +24,14 @@ class Settings(BaseSettings):
     # Celery
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
-    
+
+    # Gemini
+    GEMINI_API_KEY: SecretStr = Field(default=SecretStr(""), repr=False)
+    GEMINI_MODEL: str = Field(default="gemini-3.1-flash-lite", min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9._/-]+$")
+    GEMINI_TIMEOUT_SECONDS: int = Field(default=60, ge=5, le=60)
+    GEMINI_BATCH_CHARS: int = Field(default=24000, ge=1000, le=60000)
+    GEMINI_MAX_BATCHES: int = Field(default=8, ge=1, le=8)
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore"

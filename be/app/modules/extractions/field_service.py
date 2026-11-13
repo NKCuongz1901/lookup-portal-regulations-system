@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.documents.enums import DocumentParseStatus
 from app.modules.documents.models import Document, DocumentSegment, DocumentVersion
-from app.modules.extractions.field_extractor import extract_fields
+from app.modules.extractions.gemini_extractor import extract_fields
 from app.modules.extractions.field_types import FieldExtractionResult, FieldSegment
 from app.modules.extractions.segment_service import VersionNotFoundError
 
@@ -20,9 +20,9 @@ class NoSegmentsError(ValueError):
 def extract_fields_for_version(db: Session, document_version_id: int) -> FieldExtractionResult:
     """Caller owns session/transaction and authorization for this version.
 
-    A shared row lock prevents a concurrent parser from replacing the source
-    while it is read. No commit/rollback here; caller closes the read transaction.
-    Persistence/orchestration belongs to result_service, which saves snapshots.
+    Source rows are read in one statement, then copied into immutable inputs.
+    No locks/commit/rollback here; caller closes the read transaction. Use the
+    worker/result_service for persisted runs and source-change verification.
     """
     if type(document_version_id) is not int or document_version_id <= 0:
         raise ValueError("document_version_id must be a positive integer")
@@ -31,7 +31,6 @@ def extract_fields_for_version(db: Session, document_version_id: int) -> FieldEx
             select(DocumentVersion)
             .join(Document, Document.id == DocumentVersion.document_id)
             .where(DocumentVersion.id == document_version_id, Document.deleted_at.is_(None))
-            .with_for_update(read=True, of=DocumentVersion)
             .execution_options(populate_existing=True)
         )
         if version is None:

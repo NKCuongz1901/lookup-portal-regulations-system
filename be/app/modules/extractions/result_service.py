@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.modules.documents.enums import DocumentParseStatus
 from app.modules.documents.models import Document, DocumentSegment, DocumentVersion
-from app.modules.extractions.field_extractor import extract_fields
-from app.modules.extractions.field_types import FieldExtractionResult, FieldSegment, RULE_VERSION
+from app.modules.extractions.gemini_extractor import extract_fields, extraction_version, EXTRACTION_METHOD, GeminiExtractionError
+from app.modules.extractions.field_types import FieldExtractionResult, FieldSegment
 from app.modules.extractions.models import ExtractedField, ExtractionRun, FieldEvidence
 from app.modules.extractions.segment_service import VersionNotFoundError
 
@@ -89,12 +89,12 @@ def _automatic_key(version: DocumentVersion, fingerprint: str) -> str:
     timestamp = version.parsed_at.astimezone(timezone.utc).isoformat() if version.parsed_at else None
     generation = [fingerprint, version.parser_version, timestamp]
     digest = hashlib.sha256(json.dumps(generation).encode("utf-8")).hexdigest()
-    return f"auto:{RULE_VERSION}:{digest}"
+    return f"auto:{extraction_version()}:{digest}"
 
 
 def _check_source(run: ExtractionRun, version: DocumentVersion, rows: list[DocumentSegment]) -> None:
-    if run.rule_version != RULE_VERSION:
-        raise RuleVersionChangedError("Rules have changed; create a new extraction run")
+    if run.extraction_method != EXTRACTION_METHOD or run.rule_version != extraction_version():
+        raise RuleVersionChangedError("Extractor configuration has changed; create a new extraction run")
     if (version.parse_status != DocumentParseStatus.PARSED or version.parsed_at != run.source_parsed_at
             or version.parser_version != run.parser_version or source_fingerprint(rows) != run.source_fingerprint):
         raise SourceChangedError("Source segments have changed; create a new extraction run")
@@ -109,7 +109,8 @@ def ensure_automatic_run(db: Session, version: DocumentVersion) -> ExtractionRun
         ExtractionRun.document_version_id == version.id, ExtractionRun.request_key == key))
     if existing:
         return existing
-    run = ExtractionRun(document_version_id=version.id, request_key=key, rule_version=RULE_VERSION,
+    run = ExtractionRun(document_version_id=version.id, request_key=key, rule_version=extraction_version(),
+                        extraction_method=EXTRACTION_METHOD,
                         parser_version=version.parser_version, source_parsed_at=version.parsed_at,
                         source_fingerprint=fingerprint)
     db.add(run)
@@ -143,7 +144,8 @@ def create_run(db: Session, version_id: int, *, request_key: str | None = None,
         if existing:
             db.commit()
             return existing
-        run = ExtractionRun(document_version_id=version_id, request_key=key, rule_version=RULE_VERSION,
+        run = ExtractionRun(document_version_id=version_id, request_key=key, rule_version=extraction_version(),
+                            extraction_method=EXTRACTION_METHOD,
                             parser_version=version.parser_version, source_parsed_at=version.parsed_at,
                             source_fingerprint=fingerprint, requested_by=requested_by)
         db.add(run)
@@ -229,7 +231,9 @@ def mark_run_failed(db: Session, run_id: int, token: str, error: Exception) -> N
             if isinstance(error, SourceChangedError):
                 code, message = "source_changed", "Source changed; create a new extraction run."
             elif isinstance(error, RuleVersionChangedError):
-                code, message = "rule_version_changed", "Rules changed; create a new extraction run."
+                code, message = "rule_version_changed", "Extractor configuration changed; create a new extraction run."
+            elif isinstance(error, GeminiExtractionError):
+                code, message = error.code, error.public_message
             else:
                 code, message = "extraction_failed", "Field extraction failed. Retry this run or check worker logs."
             run.status, run.error_code, run.error_message = "failed", code, message
@@ -256,8 +260,19 @@ def execute_run(db: Session, run_id: int) -> ExtractionRun:
         _check_source(run, version, sources)
         if not sources:
             raise RunConflictError("No segments available")
-        result = extract_fields([FieldSegment(row.segment_index, row.content, row.id, row.page_number, row.section_title)
-                                 for row in sources], document_version_id=version.id)
+        version_id = version.id
+        inputs = [FieldSegment(row.segment_index, row.content, row.id, row.page_number, row.section_title) for row in sources]
+        # External inference must not hold row locks or a DB connection transaction.
+        db.commit()
+        result = extract_fields(inputs, document_version_id=version_id)
+        version = get_version(db, version_id, lock=True)
+        run = _lock_run(db, run_id)
+        if (run.status != "processing" or run.execution_token != token
+                or not run.lease_expires_at or run.lease_expires_at <= _now()):
+            db.commit()
+            return run
+        sources = _source(db, version_id)
+        _check_source(run, version, sources)
         _persist_fields(db, run, result, sources)
         db.commit()
         return run

@@ -13,7 +13,7 @@ def test_cli_reads_structure_output_and_writes_auditable_reports(tmp_path):
     source.write_text(json.dumps({"segments": [{"segment_index": 0, "page_number": 3, "content": content}]}), encoding="utf-8")
     run = subprocess.run([
         sys.executable, "-m", "scripts.extract_fields", "--segments-json", str(source),
-        "--output", str(output), "--text-output", str(readable),
+        "--engine", "rules", "--output", str(output), "--text-output", str(readable),
     ], cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True, check=True)
     result = json.loads(output.read_text(encoding="utf-8"))
     assert json.loads(run.stdout)["candidates"] == {"obligation": 1, "deadline": 1}
@@ -24,3 +24,17 @@ def test_cli_reads_structure_output_and_writes_auditable_reports(tmp_path):
             assert evidence["document_segment_id"] is None
             assert evidence["quote"] == content[evidence["start_offset"]:evidence["end_offset"]]
     assert "page 3" in readable.read_text(encoding="utf-8")
+
+
+def test_cli_defaults_to_gemini(tmp_path, monkeypatch, fake_gemini_fields):
+    from unittest.mock import Mock
+    from scripts import extract_fields as cli
+
+    source, output = tmp_path / "segments.json", tmp_path / "fields.json"
+    source.write_text(json.dumps([{"segment_index": 0, "content": "Nộp trước 15/12/2026."}]))
+    provider = Mock(side_effect=fake_gemini_fields)
+    monkeypatch.setattr(cli, "extract_fields", provider)
+    monkeypatch.setattr(sys, "argv", ["extract_fields", "--segments-json", str(source), "--output", str(output)])
+    cli.main()
+    provider.assert_called_once()
+    assert json.loads(output.read_text())["rule_version"].startswith("gemini-")

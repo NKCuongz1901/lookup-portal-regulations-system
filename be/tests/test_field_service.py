@@ -20,7 +20,8 @@ def session(status=DocumentParseStatus.PARSED, rows=None):
     return db
 
 
-def test_service_keeps_persisted_segment_ids_and_does_not_write():
+def test_service_keeps_persisted_segment_ids_and_does_not_write(monkeypatch, fake_gemini_fields):
+    monkeypatch.setattr("app.modules.extractions.field_service.extract_fields", fake_gemini_fields)
     db = session(rows=[SimpleNamespace(id=302, segment_index=0, page_number=3,
                                       section_title="Điều 5", content="Sinh viên phải nộp trước 15/12/2026.")])
     result = extract_fields_for_version(db, 25)

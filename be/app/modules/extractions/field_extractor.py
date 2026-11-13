@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from app.modules.extractions.field_types import (
-    FieldCandidate, FieldEvidence, FieldExtractionResult, FieldSegment,
+    FieldCandidate, FieldEvidence, FieldExtractionResult, FieldSegment, validate_segments,
 )
 from app.modules.extractions.rules.common import clean
 from app.modules.extractions.rules.deadline_rules import find_deadlines
@@ -34,33 +34,6 @@ class _Block:
         start = len(self.text) + 1
         self.text += "\n" + segment.content
         self.spans.append((start, len(self.text), segment))
-
-
-def _segments(values: Iterable[FieldSegment | Mapping[str, Any]]) -> list[FieldSegment]:
-    rows = []
-    for value in values:
-        if isinstance(value, FieldSegment):
-            row = value
-        else:
-            row = FieldSegment(**{name: value[name] for name in FieldSegment.__dataclass_fields__ if name in value})
-        if type(row.segment_index) is not int or row.segment_index < 0:
-            raise ValueError("segment_index must be a nonnegative integer")
-        if not isinstance(row.content, str) or not row.content.strip():
-            raise ValueError("segment content must be nonempty text")
-        for name in ("id", "page_number"):
-            value = getattr(row, name)
-            if value is not None and (type(value) is not int or value <= 0):
-                raise ValueError(f"{name} must be a positive integer or None")
-        if row.section_title is not None and not isinstance(row.section_title, str):
-            raise ValueError("section_title must be text or None")
-        rows.append(row)
-    rows.sort(key=lambda row: row.segment_index)
-    if len({row.segment_index for row in rows}) != len(rows):
-        raise ValueError("duplicate segment_index")
-    ids = [row.id for row in rows if row.id is not None]
-    if len(set(ids)) != len(ids):
-        raise ValueError("duplicate segment id")
-    return rows
 
 
 def _blocks(rows: list[FieldSegment]) -> list[_Block]:
@@ -137,7 +110,7 @@ def extract_fields(
     """
     if document_version_id is not None and (type(document_version_id) is not int or document_version_id <= 0):
         raise ValueError("document_version_id must be a positive integer")
-    rows = _segments(segments)
+    rows = validate_segments(segments)
     candidates: list[FieldCandidate] = []
     seen: dict[tuple, int] = {}
     counts: Counter = Counter()

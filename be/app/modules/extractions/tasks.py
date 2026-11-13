@@ -14,6 +14,7 @@ from app.core.storage import download_bytes
 from app.modules.documents.models import DocumentVersion
 from app.modules.documents.enums import DocumentParseStatus
 from app.modules.extractions import result_service
+from app.modules.extractions.gemini_extractor import GeminiTransientError
 from app.modules.extractions.segment_service import (
     VersionNotClaimableError,
     VersionNotFoundError,
@@ -115,7 +116,7 @@ def _process_document(db, document_version_id: int) -> dict:
 
 @celery_app.task(
     name="extractions.extract_document_fields", bind=True, acks_late=True,
-    autoretry_for=(OperationalError, InterfaceError), retry_backoff=True,
+    autoretry_for=(OperationalError, InterfaceError, GeminiTransientError), retry_backoff=10, retry_backoff_max=120,
     retry_kwargs={"max_retries": 3}, soft_time_limit=570, time_limit=600,
 )
 def extract_document_fields(self, extraction_run_id: int) -> dict:

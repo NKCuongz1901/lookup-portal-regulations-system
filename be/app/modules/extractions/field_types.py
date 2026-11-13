@@ -1,12 +1,13 @@
 """Step 4.3 contracts. All offsets are half-open Python character offsets."""
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 
 FieldKey = Literal["deadline", "obligation", "applicable_subject", "legal_basis"]
-RULE_VERSION = "fields-1.1"
+RULE_VERSION = "fields-1.1"  # Legacy offline diagnostics; Gemini supplies its own version explicitly.
 
 
 @dataclass(frozen=True)
@@ -64,3 +65,30 @@ class FieldExtractionResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+def validate_segments(values: Iterable[FieldSegment | Mapping[str, Any]]) -> list[FieldSegment]:
+    rows = []
+    for value in values:
+        if isinstance(value, FieldSegment):
+            row = value
+        else:
+            row = FieldSegment(**{name: value[name] for name in FieldSegment.__dataclass_fields__ if name in value})
+        if type(row.segment_index) is not int or row.segment_index < 0:
+            raise ValueError("segment_index must be a nonnegative integer")
+        if not isinstance(row.content, str) or not row.content.strip():
+            raise ValueError("segment content must be nonempty text")
+        for name in ("id", "page_number"):
+            value = getattr(row, name)
+            if value is not None and (type(value) is not int or value <= 0):
+                raise ValueError(f"{name} must be a positive integer or None")
+        if row.section_title is not None and not isinstance(row.section_title, str):
+            raise ValueError("section_title must be text or None")
+        rows.append(row)
+    rows.sort(key=lambda row: row.segment_index)
+    if len({row.segment_index for row in rows}) != len(rows):
+        raise ValueError("duplicate segment_index")
+    ids = [row.id for row in rows if row.id is not None]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate segment id")
+    return rows

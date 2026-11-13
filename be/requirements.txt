@@ -10,3 +10,4 @@ httpx
 boto3
 pymupdf
 celery[redis]
+google-genai>=3.3,<4

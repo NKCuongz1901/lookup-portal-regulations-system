@@ -1,4 +1,4 @@
-"""Step 4.3 dry run; reads source segments, writes local JSON/text, no DB writes."""
+"""Gemini extraction dry run; reads segments, calls Gemini, writes local reports."""
 from __future__ import annotations
 
 import argparse
@@ -6,7 +6,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from app.modules.extractions.field_extractor import extract_fields
+from app.modules.extractions.gemini_extractor import extract_fields, GeminiExtractionError, GeminiOutputError
 
 
 def main() -> None:
@@ -18,7 +18,14 @@ def main() -> None:
     source.add_argument("--r2-key", help="Exact object key; not Unicode-normalized")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--text-output", type=Path)
+    parser.add_argument("--engine", choices=("gemini", "rules"), default="gemini",
+                        help="Gemini is the production engine; rules is a legacy offline diagnostic only")
     args = parser.parse_args()
+    extractor = extract_fields
+    if args.engine == "rules":
+        if args.version_id is not None:
+            parser.error("--engine rules only supports local/PDF dry runs")
+        from app.modules.extractions.field_extractor import extract_fields as extractor
 
     if args.version_id is not None:
         import app.models  # noqa: F401 — register ORM relationships
@@ -26,7 +33,10 @@ def main() -> None:
         from app.modules.extractions.field_service import extract_fields_for_version
 
         with SessionLocal() as db:
-            result = extract_fields_for_version(db, args.version_id)
+            try:
+                result = extract_fields_for_version(db, args.version_id)
+            except GeminiExtractionError as error:
+                parser.exit(1, f"{error.code}: {error.public_message}\n")
     else:
         if args.segments_json:
             data = json.loads(args.segments_json.read_text(encoding="utf-8"))
@@ -46,7 +56,11 @@ def main() -> None:
             else:
                 pdf = args.pdf.read_bytes()
             rows = extract_structure(normalize_pages(parse_pdf(pdf))).to_rows()
-        result = extract_fields(rows)
+        try:
+            result = extractor(rows)
+        except GeminiExtractionError as error:
+            detail = f"\nValidation: {error.validation_hint}" if isinstance(error, GeminiOutputError) else ""
+            parser.exit(1, f"{error.code}: {error.public_message}{detail}\n")
         by_index = {row["segment_index"]: row["content"] for row in rows}
         for candidate in result.candidates:
             for evidence in candidate.evidences:

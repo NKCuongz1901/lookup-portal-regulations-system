@@ -15,7 +15,6 @@ from sqlalchemy.exc import IntegrityError
 from app.models import Document, DocumentSegment, DocumentVersion, StoredFile
 from app.modules.documents.enums import DocumentParseStatus
 from app.modules.extractions import result_service as service
-from app.modules.extractions.field_extractor import extract_fields
 from app.modules.extractions.field_types import FieldSegment
 from app.modules.extractions.models import ExtractedField, ExtractionRun, FieldEvidence
 from app.modules.extractions.segment_service import claim_version_for_parsing, replace_segments_and_mark_parsed
@@ -42,6 +41,83 @@ def source(db, actors):
 
 def row_count(db, model):
     return db.scalar(select(func.count()).select_from(model))
+
+
+def test_gemini_calls_outside_transaction_and_persists_verified_quotes(db, source, monkeypatch):
+    from app.modules.extractions.gemini_extractor import extract_fields as gemini_extract
+
+    run = service.create_run(db, source[1].id)
+    def request(batch):
+        assert not db.in_transaction()
+        row = next(r for r in batch.rows if "15/12/2026" in r.content)
+        return json.dumps({"deadlines": [{"value_evidence": [{"segment_index": row.segment_index, "quote": "15/12/2026"}],
+                                          "normalized_value": {"kind": "absolute", "date": "2026-12-15", "boundary": "before"}}],
+                           "obligations": [], "applicable_subjects": [], "legal_bases": []})
+    monkeypatch.setattr(service, "extract_fields", lambda rows, **kw: gemini_extract(rows, request=request, **kw))
+    result = service.execute_run(db, run.id)
+    assert result.status == "completed" and result.field_count == 1
+    assert result.extraction_method == "gemini" and result.rule_version.startswith("gemini-")
+    field = service.list_fields(db, run.id, 1, 10)[0][0]
+    assert field.raw_value == "15/12/2026" and field.review_status == "pending"
+    assert field.evidences[0].document_segment_id is not None
+
+
+@pytest.mark.parametrize("change", ["source", "token", "lease"])
+def test_source_and_lease_are_rechecked_after_gemini(db, source, monkeypatch, fake_gemini_fields, change):
+    run = service.create_run(db, source[1].id)
+    def generate(rows, **kwargs):
+        assert not db.in_transaction()
+        result = fake_gemini_fields(rows, **kwargs)
+        if change == "source":
+            row = db.get(DocumentSegment, rows[-1].id)
+            row.content += " Nguồn mới."
+        else:
+            current = db.get(ExtractionRun, run.id)
+            if change == "token": current.execution_token = str(uuid4())
+            else: current.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+        return result
+    monkeypatch.setattr(service, "extract_fields", generate)
+    if change == "source":
+        with pytest.raises(service.SourceChangedError):
+            service.execute_run(db, run.id)
+        assert service.get_run(db, run.id).error_code == "source_changed"
+    else:
+        assert service.execute_run(db, run.id).status == "processing"
+    assert row_count(db, ExtractedField) == row_count(db, FieldEvidence) == 0
+
+
+def test_old_completed_runs_remain_readable_but_pending_rules_need_new_run(db, source):
+    completed = service.create_run(db, source[1].id)
+    service.execute_run(db, completed.id)
+    completed.extraction_method = "rule_based"
+    completed.rule_version = "fields-1.1"
+    queued = service.create_run(db, source[1].id, request_key=f"manual:{uuid4()}")
+    queued.extraction_method = "rule_based"
+    queued.rule_version = "fields-1.1"
+    db.commit()
+    assert service.execute_run(db, completed.id).status == "completed"
+    assert service.list_fields(db, completed.id, 1, 10)[1] == 2
+    with pytest.raises(service.RuleVersionChangedError):
+        service.execute_run(db, queued.id)
+    assert service.get_run(db, queued.id).error_code == "rule_version_changed"
+
+
+def test_gemini_error_is_saved_without_partial_fields_and_can_retry(db, source, monkeypatch, fake_gemini_fields):
+    from app.modules.extractions.gemini_extractor import GeminiTransientError
+
+    run = service.create_run(db, source[1].id)
+    def unavailable(*args, **kwargs):
+        raise GeminiTransientError()
+    monkeypatch.setattr(service, "extract_fields", unavailable)
+    with pytest.raises(GeminiTransientError):
+        service.execute_run(db, run.id)
+    failed = service.get_run(db, run.id)
+    assert failed.status == "failed" and failed.error_code == "gemini_unavailable"
+    assert row_count(db, ExtractedField) == 0
+    monkeypatch.setattr(service, "extract_fields", fake_gemini_fields)
+    service.prepare_retry(db, run.id)
+    assert service.execute_run(db, run.id).status == "completed"
 
 
 def test_run_is_atomic_idempotent_and_separate_manual_runs_keep_history(db, source, actors):
@@ -93,7 +169,7 @@ def test_parser_commit_contains_pending_run_and_auto_key_is_timezone_stable(db, 
 def test_failed_result_rolls_back_all_fields_and_same_run_can_retry(db, source, breakage):
     _, version = source
     sources = db.scalars(select(DocumentSegment).where(DocumentSegment.document_version_id == version.id).order_by(DocumentSegment.segment_index)).all()
-    original = extract_fields([FieldSegment(row.segment_index, row.content, row.id, row.page_number, row.section_title) for row in sources], document_version_id=version.id)
+    original = service.extract_fields([FieldSegment(row.segment_index, row.content, row.id, row.page_number, row.section_title) for row in sources], document_version_id=version.id)
     candidate = original.candidates[-1]
     if breakage == "bad_constraint":
         candidate = replace(candidate, item_index=-1)

@@ -6,6 +6,7 @@ import pytest
 from app.modules.documents.enums import DocumentParseStatus
 from app.modules.extractions import tasks
 from app.modules.extractions.segment_service import VersionNotClaimableError
+from app.modules.extractions.gemini_extractor import GeminiTransientError
 
 
 def test_field_enqueue_does_not_retry_broker_publish_inline():
@@ -14,6 +15,17 @@ def test_field_enqueue_does_not_retry_broker_publish_inline():
         send.assert_called_once_with(args=[12], retry=False)
     with patch.object(tasks.extract_document_fields, "apply_async", side_effect=ConnectionError("offline")):
         assert tasks.enqueue_field_extraction(12) is False
+
+
+def test_field_task_retries_transient_gemini_errors():
+    context = MagicMock()
+    with (patch.object(tasks, "SessionLocal", return_value=context),
+          patch.object(tasks.result_service, "execute_run", side_effect=GeminiTransientError()),
+          patch.object(tasks.extract_document_fields, "retry", side_effect=RuntimeError("retry scheduled")) as retry):
+        with pytest.raises(RuntimeError, match="retry scheduled"):
+            tasks.extract_document_fields.run(12)
+    assert isinstance(retry.call_args.kwargs["exc"], GeminiTransientError)
+    assert retry.call_args.kwargs["max_retries"] == 3
 
 
 def test_parse_creates_pending_run_atomically_and_handles_queue_failure():

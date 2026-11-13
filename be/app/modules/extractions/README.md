@@ -137,120 +137,100 @@ celery -A app.core.celery_app.celery_app worker -l info
 
 Worker must list `extractions.process_document` under `[tasks]`.
 
-## Step 4.3 — rule-based field extraction
+## Step 4.3 — Gemini field extraction
 
-`field_extractor.extract_fields(segments)` is pure Python. It returns pending
-review candidates for `deadline`, `obligation`, `applicable_subject`, and
-`legal_basis`. It does not call an LLM, PDF parser, R2, Redis, or PostgreSQL.
-Four independent rule modules live in `rules/`; contracts live in
-`field_types.py`. Current `rule_version` is `fields-1.1`.
+Production uses `gemini_extractor.extract_fields` through the existing Celery
+field task. PDF/OCR, structure extraction, stored segments and review APIs stay
+unchanged. There is no automatic fallback to regex when Gemini fails.
 
-For stored data, use the read service:
+### Configuration
 
-```python
-import app.models  # Register all ORM relationships.
-from app.core.database import SessionLocal
-from app.modules.extractions.field_service import extract_fields_for_version
+Install `requirements.txt`, set these variables in `be/.env` (see `.env.example`)
+and restart **both the API and Celery worker**:
 
-with SessionLocal() as db:
-    result = extract_fields_for_version(db, document_version_id=12)
-    payload = result.to_dict()
+```dotenv
+GEMINI_API_KEY=your-key-from-google-ai-studio
+GEMINI_MODEL=gemini-3.1-flash-lite
+GEMINI_TIMEOUT_SECONDS=60
+GEMINI_BATCH_CHARS=24000
+GEMINI_MAX_BATCHES=8
 ```
 
-The service accepts only a non-deleted document's `parsed` version with segments.
-It sorts by `segment_index` and reads the requested version only. A shared lock
-on the version prevents the existing parser from replacing its segments during
-the read transaction. The caller owns authorization and session lifetime; the
-service does not commit, enqueue, change statuses, or persist fields. Missing
-versions, unparsed versions, and missing segments produce distinct exceptions.
+The key is backend-only and is masked in settings representations. API/OCR can
+start without it; a field run fails explicitly with `gemini_configuration` when
+it is missing. API and workers must use identical model/batch settings. Changing
+model, prompt, output schema or batch configuration requires a **new run** via
+**Trích xuất lại**. Old completed runs/reviews remain readable and immutable.
+The existing `extraction_method` is set to `gemini`; `rule_version` stores the
+Gemini prompt/model/configuration fingerprint within its existing 50-character
+column. No new migration is required for this switch.
 
-### Candidates and evidence
+### Provider and evidence contract
 
-- Each candidate has `field_key`, per-field `item_index`, `raw_value`, a typed
-  `normalized_value` object, `rule_id`, `rule_version`, `review_status=pending`,
-  and an `evidences` list. Pending is a proposal marker, not a saved review record
-  or a claim that the extracted information has been verified.
-- Each evidence has the actual `document_segment_id`, `segment_index`, source
-  page/section, `quote`, and local `start_offset` / `end_offset`. The invariant is
-  `segment.content[start_offset:end_offset] == quote`. Offsets use Python Unicode
-  characters, not bytes or JavaScript UTF-16 code units. No second normalization
-  of segment text is performed before matching.
-- `role=value` identifies the literal matched text. `role=context` retains
-  surrounding conditions/actions or the actual subject/legal-basis heading. A match can
-  span adjacent unfinished segments/pages; each piece cites its own source.
-  A synthetic newline joins such segments only in the in-memory matching view.
-- Repeated values in identical textual and section context share one candidate,
-  with all source occurrences retained (`occurrence_index`). Same dates with
-  different actions/conditions remain separate. No numeric confidence score is
-  invented. Source IDs are `null` only for dry runs before segment persistence.
-- Local offsets do not require a stored full-document `full_text`. They refer
-  directly to the saved segment content. Step 4.4 copies that content into an
-  evidence snapshot, preserving its meaning after re-parsing replaces the rows.
+- Google Gen AI SDK `models.generate_content` uses JSON structured output via
+  `response_json_schema`. Pydantic validates four typed arrays: deadlines,
+  obligations, applicable subjects and legal bases. Results remain pending review.
+- Prompts treat document text as untrusted data. No tools, browsing or external
+  grounding are enabled. Only saved segment text and page/section metadata are
+  sent to Gemini; R2 credentials, URLs, PDF bytes and user credentials are not.
+- Gemini returns segment indices plus **verbatim quotes**, not character offsets.
+  The backend resolves each quote against the exact segment content, including
+  repeated-quote occurrence numbers, then computes Python Unicode offsets. A
+  quote spanning segments has one evidence per segment. Context evidence can
+  retain headings, conditions and actors. `raw_value` is rebuilt from value quotes.
+  Whitespace-only OCR differences can be aligned back to the original substring;
+  stored quotes always come from the source and a run warning records alignment.
+  Letters, accents, numbers and punctuation are never altered to force a match.
+- Unknown segments, quotes with changed characters, impossible dates, malformed
+  JSON and incomplete schemas trigger one repair request per batch, with the
+  original source and a validation hint. The repaired output is fully validated
+  again. Unresolved errors or blocked/truncated responses fail the entire run;
+  no partial fields are saved. Exact quote validation establishes source
+  attribution; semantic interpretation still requires ADMIN/STAFF review.
+- Long sources are batched with neighbouring segments as context. Every source
+  row is assigned to a target batch; oversized input fails explicitly rather
+  than being truncated. Exact duplicate source spans are collapsed. Default
+  limits allow eight source batches and one repair per batch, with a 60-second
+  per-call timeout and a shared 520-second provider budget below the worker lease.
+- Empty results are valid and include a readable warning. Activities, results,
+  assessments and proposed solutions are not separate field types. An issue
+  date or academic year is not automatically a deadline.
 
-### Supported rules and limits
+SDK retries are disabled to keep each call bounded. Celery retries temporary
+connection/timeouts, HTTP 429 and transient server errors up to three times with
+backoff. Configuration errors and unverifiable output need user correction or
+manual retry. Public errors/logs exclude provider response bodies and API keys.
 
-- Deadlines: explicit before/on-or-before dates (`DD/MM/YYYY`, `DD-MM-YYYY`,
-  `ngày D tháng M năm YYYY`), application date ranges including shared month/year
-  notation, numeric relative durations and beginning/end-of-period recurrence.
-  Calendar dates are validated. Relative deadlines preserve the anchor text;
-  no due date is calculated and missing years are not guessed. Opening dates,
-  bare publication dates, exam schedules and exam durations are not deadlines.
-- Obligations: explicit `phải`, `có trách nhiệm`, `bắt buộc`, including a trailing
-  `(bắt buộc)` marker. Common negation, optional wording and questions are
-  excluded. Positive requirements after `nhưng` remain discoverable. Implicit
-  instructions without these markers are not comprehensively detected.
-- Subjects: explicit application/subject markers, and subject lists under an
-  actual applicable-subject heading. Heading evidence is retained. Eligibility
-  conditions stay verbatim; they are not converted into a decision about a user.
-- Legal bases: explicitly introduced laws/codes or numbered decrees, circulars,
-  decisions, regulations and plans. References starting a paragraph/list item
-  under an actual `Căn cứ`, `Căn cứ pháp lý`, `Căn cứ đánh giá` or `Cơ sở pháp lý`
-  heading also qualify; evidence retains that heading. Context stops at the next
-  heading, unrelated section or missing source chunk. Generic `căn cứ xét tuyển`,
-  `theo quy định`, unnumbered plans and standalone mentions in reported activities
-  are excluded. Reference numbers are copied as OCR produced them, not corrected
-  or checked against a legal database. Issue dates are not deadline candidates.
-
-A report can parse successfully into many segments while yielding no candidates
-for these four fields. Activities, results, assessments and proposed solutions
-are not additional field types. Updating rules requires a new extraction run
-(restart API/worker and use **Trích xuất lại**); completed runs and reviews keep
-their original rule version and evidence.
-
-These are conservative text heuristics, not a complete Vietnamese semantic
-parser. Lists introduced by `sau:` may need multiple candidates read together.
-Some common OCR joins are accepted by regex, but garbled table cells, lost
-words, complex exclusions, spelled-out durations and ambiguous cross-section
-references need manual review or later rules. Cross-segment joining is bounded
-to unfinished adjacent paragraphs in the same section, at most 8,000 characters;
-it does not reconstruct tables. Counts of candidates are not precision/recall.
+Implementation follows the official [Google Gen AI SDK documentation](https://googleapis.github.io/python-genai/)
+and [Gemini structured output documentation](https://ai.google.dev/gemini-api/docs/structured-output).
 
 ### Run and test
 
-Run from `be/`. PDF/R2 inputs are optional dry-run conveniences which run Step
-4.2 first. Production Step 4.3 reads saved segments via `--version-id`.
+From `be/`, the following calls Gemini and writes **local reports only**:
 
 ```bash
 .venv/bin/python -m scripts.extract_fields \
-  --version-id 12 --output .cache/fields/version-12.json
-
-.venv/bin/python -m scripts.extract_fields \
   --segments-json .cache/extraction/result.json \
-  --output .cache/fields/result.json --text-output .cache/fields/result.txt
+  --output .cache/gemini/fields.json --text-output .cache/gemini/fields.txt
 
 .venv/bin/python -m scripts.extract_fields \
-  --pdf /path/to/input.pdf --output .cache/fields/result.json
+  --version-id 12 --output .cache/gemini/version-12.json
 
 .venv/bin/python -m scripts.extract_fields \
-  --r2-key 'documents/2/exact-object-key.pdf' --output .cache/fields/result.json
+  --pdf /path/to/input.pdf --output .cache/gemini/fields.json
 
-.venv/bin/python -m pytest -q tests/test_field_extractor.py tests/test_field_service.py
-# With TEST_DATABASE_URL pointing to a test PostgreSQL instance:
-.venv/bin/python -m pytest -q tests/postgres/test_field_extraction.py
+.venv/bin/python -m pytest -q tests --ignore=tests/postgres
 ```
 
-The Step 4.3 CLI still writes only local JSON/text reports. For persisted runs,
-use the Step 4.4 services, task, or authenticated endpoints below.
+`--r2-key` is also supported and first runs PDF/OCR/structure extraction. Live
+Gemini calls consume the configured account's quota. Offline tests mock the
+provider and never send document text to Google. The old `field_extractor.py`
+and `rules/` are retained only for regression comparison: pass `--engine rules`
+with a local/PDF dry run. The CLI defaults to Gemini; production always uses it.
+
+`field_service.extract_fields_for_version` is a synchronous read-only helper for
+scripts and owns no commits. Persisted/API work uses `result_service` and Celery,
+which perform the snapshot/fencing checks described below.
 
 ## Step 4.4 — persisted runs, proposals and evidence
 
@@ -266,7 +246,7 @@ Apply the migration before restarting the API and Celery worker with this code:
 
 The worker must register both `extractions.process_document` and
 `extractions.extract_document_fields`. This change does not migrate your live
-database automatically and does not need a new Python dependency.
+database automatically. Gemini requires the `google-genai` dependency.
 
 ### Lifecycle and recovery
 
@@ -285,8 +265,10 @@ database automatically and does not need a new Python dependency.
 
 Version/run locks use a consistent order. A 10-minute lease and execution token
 exclude active duplicate attempts and fence off a superseded worker. Completed
-runs are immutable to retry. DB connectivity errors retry up to three times with
-backoff. Field tasks use late acknowledgement; see the official
+runs are immutable to retry. DB connectivity and transient Gemini errors retry up
+to three times with backoff. The worker releases DB locks before calling Gemini,
+then reacquires them and rechecks source fingerprints and lease ownership before
+saving results. Field tasks use late acknowledgement; see the official
 [Celery task documentation](https://docs.celeryq.dev/en/stable/userguide/tasks.html#acks-late).
 Hard-killed workers can still require manual retry after lease expiry; there is
 no periodic recovery scheduler in this change.

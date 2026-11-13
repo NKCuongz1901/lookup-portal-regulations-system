@@ -23,6 +23,12 @@ from app.main import app
 from app.models import Role, User, UserRole
 
 
+@pytest.fixture(autouse=True)
+def offline_extraction(monkeypatch, fake_gemini_fields):
+    monkeypatch.setattr("app.modules.extractions.result_service.extract_fields", fake_gemini_fields)
+    monkeypatch.setattr("app.modules.extractions.field_service.extract_fields", fake_gemini_fields)
+
+
 @pytest.fixture
 def db():
     url = os.environ.get("TEST_DATABASE_URL")

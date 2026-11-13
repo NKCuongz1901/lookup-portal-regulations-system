@@ -40,7 +40,7 @@ source .venv/bin/activate
 uvicorn app.main:app --reload
 
 #start celery
-celery -A app.core.celery_app.celery_app worker -l info
+celery -A app.core.celery_app.celery_app worker -l info --pool=solo
 
 ## Đối chiếu trích xuất văn bản
 
