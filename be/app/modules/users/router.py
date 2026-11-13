@@ -16,10 +16,11 @@ def get_users(
     page: int = Query(1, ge=1),
     itemsPerPage: int = Query(10, ge=1, le=100),
     search: str | None = Query(None),
+    role: str | None = Query(None, pattern="^(ADMIN|STAFF|STUDENT)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("ADMIN", "STAFF")),
 ):
-    users, total = list_users(db, page, itemsPerPage, search)
+    users, total = list_users(db, page, itemsPerPage, search, role)
     return success(
         data=[UserListItem.from_user(user) for user in users],
         message="OK",

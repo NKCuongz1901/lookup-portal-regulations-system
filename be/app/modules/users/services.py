@@ -14,6 +14,7 @@ def list_users(
     page: int,
     items_per_page: int,
     search: str | None = None,
+    role: str | None = None,
 ) -> tuple[list[User], int]:
     stmt = (
         select(User)
@@ -30,6 +31,15 @@ def list_users(
         )
         stmt = stmt.where(filters)
         count_stmt = count_stmt.where(filters)
+
+    if role:
+        role_filter = User.id.in_(
+            select(UserRole.user_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.code == role)
+        )
+        stmt = stmt.where(role_filter)
+        count_stmt = count_stmt.where(role_filter)
 
     total = db.scalar(count_stmt) or 0
     users = list(
